@@ -12,4 +12,5 @@ http://dcase.community/challenge2021/task-unsupervised-detection-of-anomalous-so
 - Challenge results: 1st of July 2021
 
 # This repository
-- EDA(/code/EDA)
+- EDA
+    - /code/EDA
