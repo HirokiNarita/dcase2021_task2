@@ -70,7 +70,7 @@ def file_load(wav_name, mono=False):
     try:
         return librosa.load(wav_name, sr=None, mono=mono)
     except:
-        logger.error("file_broken or not exists!! : {}".format(wav_name))
+        print("file_broken or not exists!! : {}".format(wav_name))
 
 ########################################################################
 # mel spectrogram generator
