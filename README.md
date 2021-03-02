@@ -11,6 +11,11 @@ http://dcase.community/challenge2021/task-unsupervised-detection-of-anomalous-so
 - Challenge deadline: __15th of June 2021__
 - Challenge results: 1st of July 2021
 
+# environment
+- Anaconda 4.9.2
+- librosa
+- pytorch
+
 # This repository
 - EDA
     - /code/EDA
