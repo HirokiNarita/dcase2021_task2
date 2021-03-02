@@ -18,4 +18,5 @@ http://dcase.community/challenge2021/task-unsupervised-detection-of-anomalous-so
 
 # This repository
 - EDA
-    - /code/EDA
+    - /src/EDA/view_melspec.ipynb
+        - normalのsourceとtargetのスペクトログラムを可視化
