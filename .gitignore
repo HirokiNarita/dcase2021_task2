@@ -1,2 +1,5 @@
 cmd_memo.txt
-/code/baseline/dcase2021_task2_baseline_mobile_net_v2/
+
+/code/baseline/dcase2021_task2_baseline_mobile_net_v2/*
+/input/*
+/src/etc/ref/*

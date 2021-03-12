@@ -56,19 +56,21 @@ def setup_logger(log_folder, modname=__name__):
 # file I/O
 ########################################################################
 # wav file input
-def file_load(wav_name, mono=False):
+def file_load(wav_name, sr, mono=True):
     """
     load .wav file.
 
     wav_name : str
         target .wav file
+   sr : int
+        sampling rate
     mono : boolean
         When load a multi channels file and this param True, the returned data will be merged for mono data
 
     return : numpy.array( float )
     """
     try:
-        return librosa.load(wav_name, sr=None, mono=mono)
+        return librosa.load(wav_name, sr=sr, mono=mono)
     except:
         print("file_broken or not exists!! : {}".format(wav_name))
 
