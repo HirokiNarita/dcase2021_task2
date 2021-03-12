@@ -12,9 +12,10 @@ http://dcase.community/challenge2021/task-unsupervised-detection-of-anomalous-so
 - Challenge results: 1st of July 2021
 
 # environment
-- Anaconda 4.9.2
-- librosa
-- pytorch
+- Anaconda=4.9.2
+- librosa=0.8.0
+- pytorch=1.8
+- torchlibrosa=0.0.8
 
 # This repository
 - EDA
