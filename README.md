@@ -14,10 +14,16 @@ http://dcase.community/challenge2021/task-unsupervised-detection-of-anomalous-so
 # environment
 - Anaconda=4.9.2
 - librosa=0.8.0
-- pytorch=1.8
+- torch=1.8
 - torchlibrosa=0.0.8
 
 # This repository
 - EDA
     - /src/EDA/view_melspec.ipynb
         - normalのsourceとtargetのスペクトログラムを可視化
+- MahalanobisAD
+    - /src/model_codes/MahalanobisAD
+    - https://arxiv.org/abs/2005.14140
+    - pre-trainedモデルにはPANNs ResNet38を用いた
+        - https://arxiv.org/abs/1912.10211
+

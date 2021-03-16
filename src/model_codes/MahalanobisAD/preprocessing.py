@@ -29,7 +29,8 @@ class extract_waveform(object):
                                         mono=True)
         self.sound_data = self.sound_data[0]
         self.label = np.array(sample['label'])
-        return {'feature': self.sound_data, 'label': self.label}
+        self.wav_name = sample['wav_name']
+        return {'feature': self.sound_data, 'label': self.label, 'wav_name': self.wav_name}
 
 class ToTensor(object):
     """
@@ -37,8 +38,8 @@ class ToTensor(object):
     """
 
     def __call__(self, sample):
-        feature, label = sample['feature'], sample['label']
-        return {'feature': torch.from_numpy(feature).float(), 'label': torch.from_numpy(label)}
+        feature, label, wav_name = sample['feature'], sample['label'], sample['wav_name']
+        return {'feature': torch.from_numpy(feature).float(), 'label': torch.from_numpy(label), 'wav_name': wav_name}
 
 class DCASE_task2_Dataset(torch.utils.data.Dataset):
     '''
