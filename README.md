@@ -16,6 +16,8 @@ http://dcase.community/challenge2021/task-unsupervised-detection-of-anomalous-so
 - librosa=0.8.0
 - torch=1.8
 - torchlibrosa=0.0.8
+- umap-learn=0.5.1
+- plotly=4.14.3
 
 # This repository
 - EDA
