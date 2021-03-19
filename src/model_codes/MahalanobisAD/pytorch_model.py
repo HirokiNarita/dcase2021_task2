@@ -202,7 +202,7 @@ class _ResNet(nn.Module):
         
         x = self.layer1(x)
         # APPEND M_mean
-        M_mean = x.view(x.shape[0], x.shape[1], -1).mean(axis=2)
+        M_mean = x.clone().view(x.shape[0], x.shape[1], -1).mean(axis=2)
         M_means.append(M_mean)
         
         x = self.layer2(x)
