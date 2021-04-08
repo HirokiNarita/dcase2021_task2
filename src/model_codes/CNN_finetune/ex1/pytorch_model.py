@@ -202,18 +202,21 @@ class _ResNet(nn.Module):
         
         x = self.layer1(x)
         # APPEND M_mean
-        M_mean = x.clone().view(x.shape[0], x.shape[1], -1).mean(axis=2)
-        M_means.append(M_mean)
+        if self.layer_out == True:
+            M_mean = x.clone().view(x.shape[0], x.shape[1], -1).mean(axis=2)
+            M_means.append(M_mean)
         
         x = self.layer2(x)
         # APPEND M_mean
-        M_mean = x.view(x.shape[0], x.shape[1], -1).mean(axis=2)
-        M_means.append(M_mean)
+        if self.layer_out == True:
+            M_mean = x.view(x.shape[0], x.shape[1], -1).mean(axis=2)
+            M_means.append(M_mean)
         
         x = self.layer3(x)
         # APPEND M_mean
-        M_mean = x.view(x.shape[0], x.shape[1], -1).mean(axis=2)
-        M_means.append(M_mean)
+        if self.layer_out == True:
+            M_mean = x.view(x.shape[0], x.shape[1], -1).mean(axis=2)
+            M_means.append(M_mean)
         
         x = self.layer4(x)
         # NOT APPEND
@@ -221,7 +224,7 @@ class _ResNet(nn.Module):
         return x, M_means
 
 class ResNet38(nn.Module):
-    def __init__(self, sample_rate, window_size, hop_size, mel_bins, fmin, fmax):
+    def __init__(self, sample_rate, window_size, hop_size, mel_bins, fmin, fmax, classes_num):
         
         super(ResNet38, self).__init__()
 
@@ -256,17 +259,17 @@ class ResNet38(nn.Module):
         self.conv_block_after1 = ConvBlock(in_channels=512, out_channels=2048)
 
         self.fc1 = nn.Linear(2048, 2048)
-        #self.fc_audioset = nn.Linear(2048, classes_num, bias=True)
+        self.fc_audioset = nn.Linear(2048, classes_num, bias=True)
 
         self.init_weights()
 
     def init_weights(self):
         init_bn(self.bn0)
         init_layer(self.fc1)
-        #init_layer(self.fc_audioset)
+        init_layer(self.fc_audioset)
 
 
-    def forward(self, input, mixup_lambda=None):
+    def forward(self, input, section_type, mixup_lambda=None, layer_out=False):
         """
         Input: (batch_size, data_length)"""
         
@@ -289,18 +292,21 @@ class ResNet38(nn.Module):
         #feat_list.append()
         x = F.dropout(x, p=0.2, training=self.training, inplace=True)
         # APPEND M_mean
-        M_mean = x.view(x.shape[0], x.shape[1], -1).mean(axis=2)
-        M_means.append(M_mean)
+        if self.layer_out == True:
+            M_mean = x.view(x.shape[0], x.shape[1], -1).mean(axis=2)
+            M_means.append(M_mean)
         
         x, resM_means = self.resnet(x)
         # CONCAT
-        M_means = M_means + resM_means
+        if self.layer_out == True:
+            M_means = M_means + resM_means
         
         x = F.avg_pool2d(x, kernel_size=(2, 2))
         x = F.dropout(x, p=0.2, training=self.training, inplace=True)
         # APPEND M_mean
-        M_mean = x.view(x.shape[0], x.shape[1], -1).mean(axis=2)
-        M_means.append(M_mean)
+        if self.layer_out == True:
+            M_mean = x.view(x.shape[0], x.shape[1], -1).mean(axis=2)
+            M_means.append(M_mean)
         
         ### debug ###
         #M = x.view(x.shape[0], x.shape[1], -1).mean(axis=2)
@@ -314,8 +320,9 @@ class ResNet38(nn.Module):
         x = self.conv_block_after1(x, pool_size=(1, 1), pool_type='avg')
         x = F.dropout(x, p=0.2, training=self.training, inplace=True)
         # APPEND M_mean
-        M_mean = x.view(x.shape[0], x.shape[1], -1).mean(axis=2)
-        M_means.append(M_mean)
+        if self.layer_out == True:
+            M_mean = x.view(x.shape[0], x.shape[1], -1).mean(axis=2)
+            M_means.append(M_mean)
         
         # GAP and GMP
         x = torch.mean(x, dim=3)
@@ -324,12 +331,13 @@ class ResNet38(nn.Module):
         x = x1 + x2
         x = F.dropout(x, p=0.5, training=self.training)
         x = F.relu_(self.fc1(x))
-        embedding = F.dropout(x, p=0.5, training=self.training)
-        #clipwise_output = torch.sigmoid(self.fc_audioset(x))
+        #embedding = F.dropout(x, p=0.5, training=self.training)
+        pred_section_type = torch.sigmoid(self.fc_audioset(x))
         
         # list[(batch_size, M1_features), (batch_size, M2_features), ...]
         #   -> (batch_size, M_features)  
-        M_means = torch.cat(M_means, dim=1)
-        #print(M_means)
-        output_dict = {'M_means': M_means}
+        if self.layer_out == True:
+            M_means = torch.cat(M_means, dim=1)
+
+        output_dict = {'pred_section_type':pred_section_type, 'M_means':M_means}
         return output_dict
