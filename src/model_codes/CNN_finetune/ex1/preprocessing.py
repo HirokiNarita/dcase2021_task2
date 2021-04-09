@@ -47,8 +47,8 @@ class ToTensor(object):
         feature, label, section_type, wav_name = sample['feature'], sample['label'], sample['type'], sample['wav_name']
         
         return {'feature': torch.from_numpy(feature).float(),
-                'label': torch.from_numpy(label),
-                'type': torch.from_numpy(section_type),
+                'label': torch.from_numpy(label).long(),
+                'type': torch.from_numpy(section_type).long(),
                 'wav_name': wav_name}
 
 class DCASE_task2_Dataset(torch.utils.data.Dataset):
@@ -65,23 +65,32 @@ class DCASE_task2_Dataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.file_list)
     
-    def get_section_type(self, file_path):
-        section_type = np.zeros(6)
+    def __getitem__(self, idx):
+        file_path = self.file_list[idx]
+        # ファイル名でlabelを判断
+        section_type = self.get_section_type(file_path)
+        label = self.get_label(file_path)
         
+        sample = {'wav_name':file_path, 'label':label, 'type':section_type}
+        sample = self.transform(sample)
+        
+        return sample
+
+    def get_section_type(self, file_path):
         if 'section_00' in file_path:
-            section_type[0] = 1
+            section_type = 0
         elif 'section_01' in file_path:
-            section_type[1] = 1
+            section_type = 1
         elif 'section_02' in file_path:
-            section_type[2] = 1
+            section_type = 2
         elif 'section_03' in file_path:
-            section_type[3] = 1
+            section_type = 3
         elif 'section_04' in file_path:
-            section_type[4] = 1
+            section_type = 4
         elif 'section_05' in file_path:
-            section_type[5] = 1
+            section_type = 5
     
-        return section_type
+        return np.array(section_type)
     
     def get_label(self, file_path):
         if "normal" in file_path:
@@ -90,14 +99,3 @@ class DCASE_task2_Dataset(torch.utils.data.Dataset):
             label = 1
             
         return np.array(label)
-    
-    def __getitem__(self, idx):
-        file_path = self.file_list[idx]
-        # ファイル名でlabelを判断
-        section_type = get_section_type(file_path)
-        label = get_label(file_path)
-        
-        sample = {'wav_name':file_path, 'label':label, 'type':section_type}
-        sample = self.transform(sample)
-        
-        return sample

@@ -6,6 +6,7 @@
 import os
 import random
 import datetime
+from copy import copy
 
 # general analysis tool-kit
 import numpy as np
@@ -97,11 +98,11 @@ def make_dataloader(train_paths, machine_type):
 #############################################################################
 def calc_auc(y_true, y_pred):
     auc = metrics.roc_auc_score(y_true, y_pred)
-    p_auc = metrics.roc_auc_score(y_true, y_pred, max_fpr=config["etc"]["max_fpr"])
+    p_auc = metrics.roc_auc_score(y_true, y_pred, max_fpr=config["param"]["max_fpr"])
     return auc, p_auc
 
 # extract function
-def train_net(net, dataloaders_dict, optimizer, num_epochs, writer, model_out_path):
+def train_net(net, dataloaders_dict, optimizer, criterion, scheduler, num_epochs, writer, model_out_path):
     # make img outdir
     #img_out_dir = IMG_DIR + '/' + machine_type
     #os.makedirs(img_out_dir, exist_ok=True)
@@ -111,19 +112,16 @@ def train_net(net, dataloaders_dict, optimizer, num_epochs, writer, model_out_pa
     net.to(device)
     
     output_dicts = {}
+    best_val_losses = np.inf
+    best_epoch = 0
     
     for epoch in range(num_epochs):
-        best_val_losses = np.inf
-        best_epoch = 0
         best_flag = False
         for phase in ['train', 'valid_source', 'valid_target']:
-
-            tr_losses = 0
-            val_losses = 0
-            
+            logger.info(phase)
             if phase == 'train':
                 net.train()
-                
+                tr_losses = 0
                 for sample in tqdm(dataloaders_dict[phase]):
                     # feature
                     input = sample['feature']
@@ -132,19 +130,21 @@ def train_net(net, dataloaders_dict, optimizer, num_epochs, writer, model_out_pa
                     section_type = sample['type']
                     section_type = section_type.to(device)
                     # model
-                    output_dict = net(input, section_type, device)
+                    output_dict = net(input, section_type, mixup_lambda=None, layer_out=False)
                     # calc loss
-                    loss = F.cross_entropy(output_dict['pred_section_type'], section_type)
+                    loss = criterion(output_dict['pred_section_type'], section_type)
                     optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()
+                    scheduler.step()
                     tr_losses += loss.item()
                 tr_losses = tr_losses / len(dataloaders_dict[phase])
                 # tensorboard
                 writer.add_scalar("loss", tr_losses, epoch+1)
 
-            else:
+            elif phase == 'valid_source':
                 net.eval()
+                val_losses = 0
                 preds = np.zeros(len(dataloaders_dict[phase].dataset))
                 labels = np.zeros(len(dataloaders_dict[phase].dataset))
                 for sample in tqdm(dataloaders_dict[phase]):
@@ -156,40 +156,54 @@ def train_net(net, dataloaders_dict, optimizer, num_epochs, writer, model_out_pa
                     section_type = section_type.to(device)
                     with torch.no_grad():
                         # model
-                        output_dict = net(input, section_type, device)
+                        output_dict = net(input, section_type, mixup_lambda=None, layer_out=False)
                         # calc loss
-                        loss = F.cross_entropy(output_dict['pred_section_type'], section_type)
+                        loss = criterion(output_dict['pred_section_type'], section_type)
                         val_losses += loss.item()
 
                         #labels[idx] = label.item()
                         #preds[idx] = loss.to('cpu').detach().numpy().copy()
                 # calc epoch score
-                val_losses = val_losses / len(dataloaders_dict[phase])
+                val_source_losses = val_losses / len(dataloaders_dict[phase])
                 #val_AUC, val_pAUC = calc_auc(labels, preds)
-                
-                if phase == 'valid_source':
-                    writer.add_scalar("val_source_loss", val_losses, epoch+1)
-                    val_losses = val_losses.to('cpu').detach().numpy().copy()
-                    if best_val_losses > val_losses:
-                        best_val_losses = val_losses.to('cpu').detach().numpy().copy()
-                        best_epoch = epoch.copy()
-                        best_flag = True
-                        # save
-                        torch.save(best_model.state_dict(), model_out_path)
-                        logger.info("Save best model")
-                    val_source_losses = val_losses.copy()
-                    #writer.add_scalar("val_source_AUC", val_AUC, epoch+1)
-                    #writer.add_scalar("val_source_pAUC", val_pAUC, epoch+1)
-                else:
-                    writer.add_scalar("val_target_loss", val_losses, epoch+1)
-                    val_target_losses = val_losses.copy()
-                    #writer.add_scalar("val_target_AUC", val_AUC, epoch+1)
-                    #writer.add_scalar("val_target_pAUC", val_pAUC, epoch+1)
-    logger.info(f"{epoch}/{num_epochs} \
-                train_losses : {tr_losses}, \
-                val_source_losses : {val_source_losses}, \
-                val_target_losses : {val_target_losses}, \
-                best_flag : {best_flag}")
+                writer.add_scalar("val_source_loss", val_source_losses, epoch+1)
+                if best_val_losses > val_source_losses:
+                    best_val_losses = val_source_losses
+                    best_epoch = epoch
+                    best_model = net
+                    best_flag = True
+                    # save
+                    torch.save(best_model.state_dict(), model_out_path)
+                    logger.info("Save best model")
+                #writer.add_scalar("val_source_AUC", val_AUC, epoch+1)
+                #writer.add_scalar("val_source_pAUC", val_pAUC, epoch+1)
+            else:
+                net.eval()
+                val_losses = 0
+                preds = np.zeros(len(dataloaders_dict[phase].dataset))
+                labels = np.zeros(len(dataloaders_dict[phase].dataset))
+                for sample in tqdm(dataloaders_dict[phase]):
+                    # feature
+                    input = sample['feature']
+                    input = input.to(device)
+                    # target
+                    section_type = sample['type']
+                    section_type = section_type.to(device)
+                    with torch.no_grad():
+                        # model
+                        output_dict = net(input, section_type, mixup_lambda=None, layer_out=False)
+                        # calc loss
+                        loss = criterion(output_dict['pred_section_type'], section_type)
+                        val_losses += loss.item()
+
+                        #labels[idx] = label.item()
+                        #preds[idx] = loss.to('cpu').detach().numpy().copy()
+                # calc epoch score
+                val_target_losses = val_losses / len(dataloaders_dict[phase])
+                writer.add_scalar("val_target_loss", val_target_losses, epoch+1)
+                #writer.add_scalar("val_target_AUC", val_AUC, epoch+1)
+                #writer.add_scalar("val_target_pAUC", val_pAUC, epoch+1)
+        logger.info(f"epoch:{epoch+1}/{num_epochs}, train_losses:{val_losses}, val_source_losses:{val_source_losses:.6f}, val_target_losses:{val_target_losses:.6f}, best_flag:{best_flag}")
     
     output_dicts = {'best_epoch':best_epoch, 'best_val_losses':best_val_losses}
     return output_dicts
