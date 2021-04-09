@@ -197,24 +197,24 @@ class _ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x):
+    def forward(self, x, layer_out=False):
         M_means = []
         
         x = self.layer1(x)
         # APPEND M_mean
-        if self.layer_out == True:
+        if layer_out == True:
             M_mean = x.clone().view(x.shape[0], x.shape[1], -1).mean(axis=2)
             M_means.append(M_mean)
         
         x = self.layer2(x)
         # APPEND M_mean
-        if self.layer_out == True:
+        if layer_out == True:
             M_mean = x.view(x.shape[0], x.shape[1], -1).mean(axis=2)
             M_means.append(M_mean)
         
         x = self.layer3(x)
         # APPEND M_mean
-        if self.layer_out == True:
+        if layer_out == True:
             M_mean = x.view(x.shape[0], x.shape[1], -1).mean(axis=2)
             M_means.append(M_mean)
         
@@ -259,21 +259,26 @@ class ResNet38(nn.Module):
         self.conv_block_after1 = ConvBlock(in_channels=512, out_channels=2048)
 
         self.fc1 = nn.Linear(2048, 2048)
-        self.fc_audioset = nn.Linear(2048, classes_num, bias=True)
+        self.fc_transfer = nn.Linear(2048, classes_num, bias=True)
 
         self.init_weights()
 
     def init_weights(self):
         init_bn(self.bn0)
         init_layer(self.fc1)
-        init_layer(self.fc_audioset)
+        init_layer(self.fc_transfer)
 
+    def load_from_pretrain(self, pretrained_checkpoint_path):
+        checkpoint = torch.load(pretrained_checkpoint_path)
+        self.base.load_state_dict(checkpoint['model'])
+    
 
     def forward(self, input, section_type, mixup_lambda=None, layer_out=False):
         """
         Input: (batch_size, data_length)"""
         
         M_means = []
+        self.layer_out = layer_out
         
         x = self.spectrogram_extractor(input)   # (batch_size, 1, time_steps, freq_bins)
         x = self.logmel_extractor(x)    # (batch_size, 1, time_steps, mel_bins)
@@ -289,14 +294,13 @@ class ResNet38(nn.Module):
             x = do_mixup(x, mixup_lambda)
         
         x = self.conv_block1(x, pool_size=(2, 2), pool_type='avg')
-        #feat_list.append()
         x = F.dropout(x, p=0.2, training=self.training, inplace=True)
         # APPEND M_mean
         if self.layer_out == True:
             M_mean = x.view(x.shape[0], x.shape[1], -1).mean(axis=2)
             M_means.append(M_mean)
         
-        x, resM_means = self.resnet(x)
+        x, resM_means = self.resnet(x, layer_out=self.layer_out)
         # CONCAT
         if self.layer_out == True:
             M_means = M_means + resM_means
@@ -332,7 +336,7 @@ class ResNet38(nn.Module):
         x = F.dropout(x, p=0.5, training=self.training)
         x = F.relu_(self.fc1(x))
         #embedding = F.dropout(x, p=0.5, training=self.training)
-        pred_section_type = torch.sigmoid(self.fc_audioset(x))
+        pred_section_type = self.fc_transfer(x)
         
         # list[(batch_size, M1_features), (batch_size, M2_features), ...]
         #   -> (batch_size, M_features)  

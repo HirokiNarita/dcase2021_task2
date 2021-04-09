@@ -12,10 +12,10 @@ param:
   fmin: 50
   fmax: 8000
   # dataloader
-  batch_size : 128
-  shuffle : False
+  batch_size : 32
+  shuffle : True
   # train
-  num_epochs : 100
+  num_epochs : 40
   # etc
   devise : 'cuda'
   max_fpr : 0.1
