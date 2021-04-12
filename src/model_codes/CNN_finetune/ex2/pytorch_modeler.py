@@ -203,7 +203,7 @@ def train_net(net, dataloaders_dict, optimizer, criterion, scheduler, num_epochs
                 writer.add_scalar("val_target_loss", val_target_losses, epoch+1)
                 #writer.add_scalar("val_target_AUC", val_AUC, epoch+1)
                 #writer.add_scalar("val_target_pAUC", val_pAUC, epoch+1)
-        logger.info(f"epoch:{epoch+1}/{num_epochs}, train_losses:{val_losses}, val_source_losses:{val_source_losses:.6f}, val_target_losses:{val_target_losses:.6f}, best_flag:{best_flag}")
+        logger.info(f"epoch:{epoch+1}/{num_epochs}, train_losses:{tr_losses}, val_source_losses:{val_source_losses:.6f}, val_target_losses:{val_target_losses:.6f}, best_flag:{best_flag}")
     
     output_dicts = {'best_epoch':best_epoch, 'best_val_losses':best_val_losses}
     return output_dicts

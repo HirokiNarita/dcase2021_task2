@@ -12,11 +12,14 @@ from logging import getLogger, StreamHandler, Formatter, FileHandler, DEBUG
 
 # additional
 import numpy as np
+import pandas as pd
+import scipy
 import librosa
 import librosa.core
 import librosa.feature
 import yaml
 import torch
+from sklearn.metrics import roc_auc_score
 
 ########################################################################
 # version
@@ -306,3 +309,77 @@ def toc(tag="elapsed time"):
         print("{}: {:.9f} [sec]".format(tag, time.time() - start_time_tictoc))
     else:
         print("tic has not been called")
+
+def get_section_types(wav_names):
+    """
+    wav_nameリストから
+    セクションタイプリストを得る関数
+
+    Args:
+        wav_names (list): 音源ファイルのパスリスト
+
+    Returns:
+        list: sectionタイプのリスト
+    """
+    section_types = []
+    for wav_name in wav_names:
+        if 'section_00' in wav_name:
+            section_types.append(0)
+        elif 'section_01' in wav_name:
+            section_types.append(1)
+        elif 'section_02' in wav_name:
+            section_types.append(2)
+        elif 'section_03' in wav_name:
+            section_types.append(3)
+        elif 'section_04' in wav_name:
+            section_types.append(4)
+        else:
+            section_types.append(5)
+    
+    return np.array(section_types)
+
+def get_target_binary(wav_names):
+    """
+    wav_nameリストからtargetか
+    否かのone-hotベクトルを得る関数
+
+    Args:
+        wav_names (list): 音源ファイルのパスリスト
+
+    Returns:
+        list: 0 or 1のone-hotベクトル
+    """
+    targets_binary = []
+    for wav_name in wav_names:
+        if 'target' in wav_name:
+            targets_binary.append(1)
+        else:
+            targets_binary.append(0)
+    
+    return target_binary
+
+def get_pred_discribe(labels, preds, section_types):
+    describe_df = pd.DataFrame(np.stack([labels, preds, section_types], axis=1),
+                                columns=['labels', 'preds', 'section_types'])
+    describe_df = describe_df.astype({'labels': int, 'section_types': int})
+    return describe_df
+
+def get_score_perID(describe_df, max_fpr=0.1):
+    # ユニークsectionを取得、昇順ソート
+    sections = np.sort(describe_df['section_types'].unique())
+
+    for section in sections:
+        per_section_df = describe_df[describe_df['section_types'] == section]
+        per_section_AUC = roc_auc_score(per_section_df['labels'], per_section_df['preds'])
+        per_section_pAUC = roc_auc_score(per_section_df['labels'], per_section_df['preds'], max_fpr=max_fpr)
+        # column = [AUC,pAUC], row = index
+        score_df = pd.DataFrame(np.stack([per_section_AUC, per_section_pAUC]), index=['AUC', 'pAUC']).T
+        # indexをsectionナンバーにrename
+        # column = [AUC,pAUC], row = [section]
+        score_df.index = [section]
+        if section == 0:
+            scores_df = score_df.copy()
+        else:
+            # 結合
+            scores_df = scores_df.append(score_df)
+    return scores_df
