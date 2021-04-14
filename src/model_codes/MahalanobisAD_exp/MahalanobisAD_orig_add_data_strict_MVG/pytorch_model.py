@@ -6,8 +6,6 @@ from torchlibrosa.augmentation import SpecAugmentation
 
 from pytorch_utils import do_mixup, interpolate, pad_framewise_output
 import matplotlib.pyplot as plt
-import numpy as np
-from preprocessing import procrustes
 #output_dict = {'loss':loss, 'x':input_spec, 'y':y}
 
 def init_layer(layer):
@@ -233,7 +231,6 @@ class ResNet38(nn.Module):
         ref = 1.0
         amin = 1e-10
         top_db = None
-        self.target = None
 
         # Spectrogram extractor
         self.spectrogram_extractor = Spectrogram(n_fft=window_size, hop_length=hop_size, 
@@ -268,36 +265,8 @@ class ResNet38(nn.Module):
         init_layer(self.fc1)
         #init_layer(self.fc_audioset)
 
-    def do_hyperalignment(self, target, batch_source):
-        batch_source = batch_source.to('cpu').detach().numpy().copy()
-        n_samples = batch_source.shape[0]
-        target_corr = np.corrcoef(target.T)
-        batch_source_tfed = []
-        for n_sample in range(n_samples):
-            source = batch_source[n_sample, :, :, :].reshape((batch_source.shape[2], batch_source.shape[3]))
-            source_corr = np.corrcoef(source.T)
-            R = procrustes(target_corr, source_corr)
-            source_tfed = np.dot(source, R.T)
-            batch_source_tfed.append(source_tfed)
-            # if n_sample == 0:
-            #    plt.imshow(source.T, aspect='auto')
-            #    plt.show()
-            #    plt.imshow(source_tfed.T, aspect='auto')
-            #    plt.show()
-            #    print(source)
-            #    print(source_tfed)
-            # if n_sample == 90:
-            #    plt.imshow(source.T, aspect='auto')
-            #    plt.show()
-            #    plt.imshow(source_tfed.T, aspect='auto')
-            #    plt.show()
-            #    print(source)
-            #    print(source_tfed)
-        batch_source_tfed = np.array(batch_source_tfed).reshape(batch_source.shape)
-        batch_source_tfed = torch.from_numpy(batch_source_tfed.astype(np.float)).clone().to('cuda:0', torch.float)
-        return batch_source_tfed
-    
-    def forward(self, input, mixup_lambda=None, first_flag=False):
+
+    def forward(self, input, mixup_lambda=None):
         """
         Input: (batch_size, data_length)"""
         
@@ -305,15 +274,6 @@ class ResNet38(nn.Module):
         
         x = self.spectrogram_extractor(input)   # (batch_size, 1, time_steps, freq_bins)
         x = self.logmel_extractor(x)    # (batch_size, 1, time_steps, mel_bins)
-        raw = x
-        if first_flag == True:
-            self.target = x[0,0,:,:].to('cpu').detach().numpy().copy()
-            x = self.do_hyperalignment(self.target, x[1:,:,:,:])
-            x=raw[1,:,:,:]+x
-        else:
-            x = self.do_hyperalignment(self.target, x)
-            x=raw[1,:,:,:]+x
-
         x = x.transpose(1, 3)
         x = self.bn0(x)
         x = x.transpose(1, 3)
