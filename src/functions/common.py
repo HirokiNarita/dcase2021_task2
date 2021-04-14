@@ -364,7 +364,7 @@ def get_pred_discribe(labels, preds, section_types):
     describe_df = describe_df.astype({'labels': int, 'section_types': int})
     return describe_df
 
-def get_score_perID(describe_df, max_fpr=0.1):
+def get_score_per_Section(describe_df, max_fpr=0.1):
     # ユニークsectionを取得、昇順ソート
     sections = np.sort(describe_df['section_types'].unique())
 
