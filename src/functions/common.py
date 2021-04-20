@@ -14,6 +14,7 @@ from logging import getLogger, StreamHandler, Formatter, FileHandler, DEBUG
 import numpy as np
 import pandas as pd
 import scipy
+from sklearn import metrics
 import librosa
 import librosa.core
 import librosa.feature
@@ -319,7 +320,7 @@ def get_section_types(wav_names):
         wav_names (list): 音源ファイルのパスリスト
 
     Returns:
-        list: sectionタイプのリスト
+        np.array: sectionタイプのone-hot
     """
     section_types = []
     for wav_name in wav_names:
@@ -347,7 +348,7 @@ def get_target_binary(wav_names):
         wav_names (list): 音源ファイルのパスリスト
 
     Returns:
-        list: 0 or 1のone-hotベクトル
+        np.array: 0 or 1のone-hotベクトル
     """
     targets_binary = []
     for wav_name in wav_names:
@@ -356,7 +357,19 @@ def get_target_binary(wav_names):
         else:
             targets_binary.append(0)
     
-    return target_binary
+    return np.array(targets_binary)
+
+def get_label(file_path):
+    if "normal" in file_path:
+        label = 0
+    else:
+        label = 1
+    return label
+
+def calc_auc(y_true, y_pred, max_fpr=0.1):
+    auc = metrics.roc_auc_score(y_true, y_pred)
+    p_auc = metrics.roc_auc_score(y_true, y_pred, max_fpr=max_fpr)
+    return auc, p_auc
 
 def get_pred_discribe(labels, preds, section_types):
     describe_df = pd.DataFrame(np.stack([labels, preds, section_types], axis=1),
@@ -383,3 +396,28 @@ def get_score_per_Section(describe_df, max_fpr=0.1):
             # 結合
             scores_df = scores_df.append(score_df)
     return scores_df
+
+def calc_DCASE2021_score(all_scores_df, labels, preds, section_types, phase):
+    describe_df = get_pred_discribe(labels, preds, section_types)
+    scores_df = get_score_per_Section(describe_df, max_fpr=0.1)
+    # 結合(source + target)
+    if phase == 'valid_source':
+        scores_df = scores_df.rename(index=lambda num: 'Source_' + f'{num}')
+        all_scores_df = scores_df.copy()
+    elif phase == 'valid_target':
+        scores_df = scores_df.rename(index=lambda num: 'Target_' + f'{num}')
+        all_scores_df = all_scores_df.append(scores_df)
+        # 平均
+        mean_df = pd.DataFrame(all_scores_df.mean(axis=0)).T
+        mean_df.index = ['mean']
+        # 調和平均
+        hmean = scipy.stats.hmean(all_scores_df, axis=0)
+        hmean_df = pd.DataFrame(hmean, index=['AUC', 'pAUC']).T
+        hmean_df.index = ['h_mean']
+        # 結合
+        all_scores_df = all_scores_df.append(mean_df)
+        all_scores_df = all_scores_df.append(hmean_df)
+        # 出力
+        #all_scores_df.to_csv(f'{OUT_SCORE_DIR}/{machine_type}_score.csv')
+        
+    return all_scores_df
