@@ -122,7 +122,7 @@ def train_net(net, dataloaders_dict, optimizer, scheduler, num_epochs, writer, m
                     input = sample['features']
                     input = input.to(device)
                     # model
-                    output_dict = net(input)
+                    output_dict = net(input, device)
                     # calc loss
                     loss, x_hat = output_dict['reconst_error'], output_dict['reconstruction']
                     optimizer.zero_grad()
@@ -145,7 +145,7 @@ def train_net(net, dataloaders_dict, optimizer, scheduler, num_epochs, writer, m
                     input = input.to(device)
                     with torch.no_grad():
                         # model
-                        output_dict = net(input)
+                        output_dict = net(input, device)
                         # calc loss
                         reconst_error, x_hat = output_dict['reconst_error'], output_dict['reconstruction']
                         # to numpy
@@ -174,7 +174,7 @@ def train_net(net, dataloaders_dict, optimizer, scheduler, num_epochs, writer, m
                     input = input.to(device)
                     with torch.no_grad():
                         # model
-                        output_dict = net(input)
+                        output_dict = net(input, device)
                         # calc loss
                         reconst_error, x_hat = output_dict['reconst_error'], output_dict['reconstruction']
                         # to numpy
