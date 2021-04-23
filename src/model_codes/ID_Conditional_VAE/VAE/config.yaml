@@ -10,7 +10,7 @@ param:
   num_epochs : 100
   # latent_size
   mid_size : 1024
-  latent_size : 128
+  latent_size : 64
   # etc
   devise : 'cuda'
   max_fpr : 0.1

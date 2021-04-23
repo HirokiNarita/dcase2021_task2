@@ -74,7 +74,7 @@ def make_dataloader(ext_data):
     valid_source_loader = torch.utils.data.DataLoader(
         dataset=valid_source_dataset,
         batch_size=config['param']['batch_size'],
-        shuffle=False,
+        shuffle=True,
         num_workers=2,
         pin_memory=True
         )
@@ -82,7 +82,7 @@ def make_dataloader(ext_data):
     valid_target_loader = torch.utils.data.DataLoader(
         dataset=valid_target_dataset,
         batch_size=config['param']['batch_size'],
-        shuffle=False,
+        shuffle=True,
         num_workers=2,
         pin_memory=True
         )

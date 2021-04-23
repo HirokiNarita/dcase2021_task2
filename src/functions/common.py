@@ -372,6 +372,9 @@ def calc_auc(y_true, y_pred, max_fpr=0.1):
     return auc, p_auc
 
 def get_pred_discribe(labels, preds, section_types):
+    #print(labels.shape)
+    #print(preds.shape)
+    #print(section_types.shape)
     describe_df = pd.DataFrame(np.stack([labels, preds, section_types], axis=1),
                                 columns=['labels', 'preds', 'section_types'])
     describe_df = describe_df.astype({'labels': int, 'section_types': int})
