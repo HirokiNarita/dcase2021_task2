@@ -74,7 +74,7 @@ def make_dataloader(ext_data):
     valid_source_loader = torch.utils.data.DataLoader(
         dataset=valid_source_dataset,
         batch_size=config['param']['batch_size'],
-        shuffle=False,
+        shuffle=True,
         num_workers=2,
         pin_memory=True
         )
@@ -82,7 +82,7 @@ def make_dataloader(ext_data):
     valid_target_loader = torch.utils.data.DataLoader(
         dataset=valid_target_dataset,
         batch_size=config['param']['batch_size'],
-        shuffle=False,
+        shuffle=True,
         num_workers=2,
         pin_memory=True
         )
@@ -114,6 +114,8 @@ def train_net(net, dataloaders_dict, optimizer, scheduler, num_epochs, writer, m
         all_scores_df = pd.DataFrame()
         for phase in ['train', 'valid_source', 'valid_target']:
             logger.info(phase)
+            inputs = []
+            x_hats = []
             if phase == 'train':
                 net.train()
                 tr_losses = 0
@@ -125,11 +127,19 @@ def train_net(net, dataloaders_dict, optimizer, scheduler, num_epochs, writer, m
                     output_dict = net(input, device)
                     # calc loss
                     loss, x_hat = output_dict['reconst_error'], output_dict['reconstruction']
+                    inputs.append(input.to('cpu'))
+                    x_hats.append(x_hat.to('cpu'))
                     optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()
                     #scheduler.step()
                     tr_losses += loss.item()
+                #inputs = torch.cat(inputs).detach().numpy().copy()
+                #x_hats = torch.cat(x_hats).detach().numpy().copy()
+                #plt.imshow(inputs, aspect='auto')
+                #plt.show()
+                #plt.imshow(x_hats, aspect='auto')
+                #plt.show()
                 tr_losses = tr_losses / len(dataloaders_dict[phase])
                 # tensorboard
                 writer.add_scalar("tr_loss", tr_losses, epoch+1)
@@ -139,6 +149,9 @@ def train_net(net, dataloaders_dict, optimizer, scheduler, num_epochs, writer, m
                 preds = []
                 labels = []
                 section_types = []
+                
+                inputs = []
+                x_hats = []
                 for sample in tqdm(dataloaders_dict[phase]):
                     # feature
                     input = sample['features']
@@ -151,13 +164,23 @@ def train_net(net, dataloaders_dict, optimizer, scheduler, num_epochs, writer, m
                         # to numpy
                         reconst_error = reconst_error.to('cpu')
                         x_hat = x_hat.to('cpu')
+                        
+                        inputs.append(input.to('cpu'))
+                        x_hats.append(x_hat.to('cpu'))
                         # append
-                        preds.append(reconst_error)
+                        preds.append(reconst_error.to('cpu'))
+                        #print(reconst_error.shape)
                         labels.append(sample['label'])
                         section_types.append(sample['type'])
                 # concat
                 preds = torch.cat(preds).detach().numpy().copy()
                 labels = torch.cat(labels).detach().numpy().copy()
+                #inputs = torch.cat(inputs).detach().numpy().copy()
+                x_hats = torch.cat(x_hats).detach().numpy().copy()
+                #plt.imshow(inputs, aspect='auto')
+                plt.show()
+                plt.imshow(x_hats, aspect='auto')
+                plt.show()
                 section_types = torch.cat(section_types).detach().numpy().copy()
                 # calc score
                 all_scores_df = com.calc_DCASE2021_score(all_scores_df, labels, preds, section_types, phase)

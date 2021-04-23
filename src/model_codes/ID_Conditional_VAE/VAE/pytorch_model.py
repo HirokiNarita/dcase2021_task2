@@ -62,23 +62,23 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         
         self.fc_mean = nn.Linear(in_features, out_features) 
-        self.fc_var = nn.Linear(in_features, out_features) 
+        self.fc_var = nn.Linear(in_features, out_features)
     
     def forward(self, input, device):
-        delta = 1e-8
         
         x = input
         mean = self.fc_mean(x)
         var = self.fc_var(x)
-        KLd = 0.5 * torch.sum(1 + var - mean**2 - torch.exp(var+delta))
+        
+        KLd = -0.5 * torch.sum(1 + var - mean**2 - torch.exp(var), dim=1)
+        #print(KLd.shape)
         z = self.sample_z(mean, var, device)
-
+        
         return z, KLd
     
     def sample_z(self, mean, var, device):
-        delta = 1e-8
         epsilon = torch.randn(mean.shape, device=device)
-        return mean + epsilon * torch.exp(0.5*var+delta)
+        return mean + epsilon * torch.exp(0.5*var)
 
 class Conditional_VAE(nn.Module):
     def __init__(self, in_features, mid_size, latent_size):
@@ -101,20 +101,23 @@ class Conditional_VAE(nn.Module):
         Input: (batch_size, data_length)"""
         
         x = self.bn0(input)
+        #gt_x = x.clone()
         x = self.Encoder(x)
         x = self.fc_block1(x, use_tanh=True)
         
         z, KLd = self.Bottleneck(x, device)
-        
+        #print(KLd)
         x = self.fc_block2(z)
         x = self.Decoder(x)
-
+        #plt.plot(KLd.to('cpu').detach().numpy())
+        #plt.show()
         if self.training == True:
             reconst_error = F.mse_loss(x, input, reduction='mean')
-            reconst_error = reconst_error - KLd
+            reconst_error = reconst_error + KLd.mean(dim=0)
         else:
             reconst_error = F.mse_loss(x, input, reduction='none').mean(dim=1)
-            reconst_error = reconst_error - KLd
+            #reconst_error = reconst_error + KLd
+            #print(reconst_error)
             
         output_dict = {'reconst_error': reconst_error, 'reconstruction': x}
         
