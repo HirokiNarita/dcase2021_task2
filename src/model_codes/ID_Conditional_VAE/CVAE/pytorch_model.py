@@ -99,7 +99,7 @@ class Conditional_VAE(nn.Module):
     def forward(self, input, section_type, device):
         
         x = self.bn0(input)
-        x_gt = x.clone()
+        #x_gt = x.clone()
         x = self.Encoder(x)
         x = self.fc_block1(x, use_tanh=False)
         
@@ -119,12 +119,12 @@ class Conditional_VAE(nn.Module):
         x = self.Decoder(x)
 
         if self.training == True:
-            reconst_error = F.mse_loss(x, x_gt, reduction='mean')
+            reconst_error = F.mse_loss(x, input, reduction='mean')
             #reconst_error = -(F.cosine_similarity(x, x_gt, dim=1)).mean()
             reconst_error = reconst_error + KLd.mean(dim=0)
         else:
             #reconst_error = -F.cosine_similarity(x, x_gt, dim=1)
-            reconst_error = F.mse_loss(x, x_gt, reduction='none').mean(dim=1)
+            reconst_error = F.mse_loss(x, input, reduction='none').mean(dim=1)
             reconst_error = reconst_error + KLd
             #print(reconst_error.shape)
             
