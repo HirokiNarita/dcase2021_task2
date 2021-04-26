@@ -14,6 +14,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn import metrics
 from IPython.display import display
+from sklearn.preprocessing import StandardScaler
 # pytorch
 import torch
 import torch.utils.data as data
@@ -58,6 +59,11 @@ def set_seed(seed: int = 42):
 # Make Dataloader
 ############################################################################
 def make_dataloader(ext_data):
+    # zscore scaling
+    scaler = StandardScaler()
+    ext_data['train']['features'] = scaler.fit_transform(ext_data['train']['features'])
+    ext_data['valid_source']['features'] = scaler.transform(ext_data['valid_source']['features'])
+    ext_data['valid_target']['features'] = scaler.transform(ext_data['valid_target']['features'])
     
     train_dataset = prep.DCASE_task2_Dataset(ext_data['train'])
     valid_source_dataset = prep.DCASE_task2_Dataset(ext_data['valid_source'])
