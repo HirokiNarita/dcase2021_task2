@@ -20,6 +20,7 @@ import librosa.core
 import librosa.feature
 import yaml
 import torch
+import torchaudio.transforms as T
 from sklearn.metrics import roc_auc_score
 
 ########################################################################
@@ -60,7 +61,7 @@ def setup_logger(log_folder, modname=__name__):
 # file I/O
 ########################################################################
 # wav file input
-def file_load(wav_name, sr, mono=True):
+def file_load(wav_name, sr=16000, mono=True):
     """
     load .wav file.
 
@@ -102,16 +103,16 @@ def log_melspec_generate(file_name,
 
 ########################################################################
 
-
+import matplotlib.pyplot as plt
 ########################################################################
 # feature extractor
 ########################################################################
-def file_to_vectors(file_name,
-                    n_mels=64,
-                    n_frames=5,
-                    n_fft=1024,
-                    hop_length=512,
-                    power=2.0):
+def file_to_vectors_2d(file_name,
+                       n_mels=128,
+                       n_frames=64,
+                       n_fft=1024,
+                       hop_length=512,
+                       power=2.0):
     """
     convert file_name to a vector array.
 
@@ -123,31 +124,33 @@ def file_to_vectors(file_name,
         * dataset.shape = (dataset_size, feature_vector_length)
     """
     # calculate the number of dimensions
-    dims = n_mels * n_frames
-
+    #dims = n_mels * n_frames
+    #n_frames=64
     # generate melspectrogram using librosa
-    y, sr = file_load(file_name, mono=True)
-    mel_spectrogram = librosa.feature.melspectrogram(y=y,
-                                                     sr=sr,
-                                                     n_fft=n_fft,
-                                                     hop_length=hop_length,
-                                                     n_mels=n_mels,
-                                                     power=power)
+    waveform, sample_rate = file_load(file_name, mono=True)
+    mel_spectrogram_transformer = T.MelSpectrogram(sample_rate=sample_rate,
+                                                   n_fft=n_fft,
+                                                   hop_length=hop_length,
+                                                   n_mels=n_mels,
+                                                   power=power)
+    mel_spectrogram = mel_spectrogram_transformer(waveform)
 
     # convert melspectrogram to log mel energies
-    log_mel_spectrogram = 20.0 / power * np.log10(np.maximum(mel_spectrogram, sys.float_info.epsilon))
-
+    log_mel_spectrogram = 20.0 / power * torch.log10(torch.maximum(mel_spectrogram))
+    #plt.imshow(log_mel_spectrogram, aspect='auto')
+    #plt.show()
     # calculate total vector size
     n_vectors = len(log_mel_spectrogram[0, :]) - n_frames + 1
 
     # skip too short clips
     if n_vectors < 1:
-        return np.empty((0, dims))
-
+        return torch.empty((0, n_frames, n_mels))
+    
     # generate feature vectors by concatenating multiframes
-    vectors = np.zeros((n_vectors, dims))
-    for t in range(n_frames):
-        vectors[:, n_mels * t : n_mels * (t + 1)] = log_mel_spectrogram[:, t : t + n_vectors].T
+    vectors = torch.zeros((n_vectors, n_frames, n_mels))
+    for t in range(n_vectors):
+        #vectors[:, n_frames * t : n_frames * (t + 1), n_mels] = log_mel_spectrogram[:, t : t + n_vectors].T
+        vectors[t, :, :] = log_mel_spectrogram[:, t : t+n_frames].T
 
     return vectors
 
