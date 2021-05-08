@@ -1,0 +1,13 @@
+IO_OPTION:
+  INPUT_ROOT: '/media/hiroki/HDD1TB/research/dcase2021_task2/datasets'
+  OUTPUT_ROOT: '/media/hiroki/HDD1TB/research/dcase2021_task2/output/By_subsequence_time-series/window_32'
+  
+param:
+  # dataloader
+  batch_size : 128
+  shuffle : True
+  # train
+  num_epochs : 300
+  # etc
+  devise : 'cuda'
+  max_fpr : 0.1

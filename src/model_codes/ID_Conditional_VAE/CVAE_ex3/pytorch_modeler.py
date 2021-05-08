@@ -130,8 +130,10 @@ def train_net(net, dataloaders_dict, optimizer, num_epochs, writer, model_out_pa
                     input = input.to(device)
                     section_type = sample['type']
                     section_type = section_type.to(device)
+                    target_bool = sample['target_bool']
+                    target_bool = target_bool.to(device)
                     # model
-                    output_dict = net(input, section_type, device)
+                    output_dict = net(input, section_type, target_bool, device)
                     # calc loss
                     loss, x_hat = output_dict['reconst_error'], output_dict['reconstruction']
                     optimizer.zero_grad()
@@ -157,9 +159,11 @@ def train_net(net, dataloaders_dict, optimizer, num_epochs, writer, model_out_pa
                     input = input.to(device)
                     section_type = sample['type']
                     section_type = section_type.to(device)
+                    target_bool = sample['target_bool']
+                    target_bool = target_bool.to(device)
                     with torch.no_grad():
                         # model
-                        output_dict = net(input, section_type, device)
+                        output_dict = net(input, section_type, target_bool, device)
                         # calc loss
                         reconst_error, x_hat = output_dict['reconst_error'], output_dict['reconstruction']
                         # to numpy
@@ -194,9 +198,11 @@ def train_net(net, dataloaders_dict, optimizer, num_epochs, writer, model_out_pa
                     input = input.to(device)
                     section_type = sample['type']
                     section_type = section_type.to(device)
+                    target_bool = sample['target_bool']
+                    target_bool = target_bool.to(device)
                     with torch.no_grad():
                         # model
-                        output_dict = net(input, section_type, device)
+                        output_dict = net(input, section_type, target_bool, device)
                         # calc loss
                         reconst_error, x_hat = output_dict['reconst_error'], output_dict['reconstruction']
                         # to numpy

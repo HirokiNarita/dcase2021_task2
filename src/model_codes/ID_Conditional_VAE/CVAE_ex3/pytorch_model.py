@@ -93,10 +93,10 @@ class Conditional_VAE(nn.Module):
         
         self.Bottleneck = Bottleneck(latent_size, latent_size)
         
-        self.fc_block2 = FC_block(latent_size+num_classes, mid_size)
+        self.fc_block2 = FC_block(latent_size+num_classes+2, mid_size)
         self.Decoder = Decoder(mid_size, in_features)
 
-    def forward(self, input, section_type, device):
+    def forward(self, input, section_type, target_bool, device):
         
         x = self.bn0(input)
         x_gt = x.clone()
@@ -107,13 +107,17 @@ class Conditional_VAE(nn.Module):
         # to one-hot
         if self.training == True:
             section_type = F.one_hot(section_type, num_classes=self.num_classes)
+            target_bool = F.one_hot(target_bool, num_classes=2)
         else:
             section_type = F.one_hot(section_type, num_classes=self.num_classes)
+            target_bool = F.one_hot(target_bool, num_classes=2)
             #section_type = torch.full((x.shape[0], 1), 0).squeeze(1).to(device)
             #section_type = F.one_hot(section_type, num_classes=self.num_classes)
             
         # concat
         z = torch.cat([x, section_type], dim=1)
+        #target_bool = target_bool.unsqueeze(1)
+        z = torch.cat([z, target_bool], dim=1)
         
         x = self.fc_block2(z)
         x = self.Decoder(x)
