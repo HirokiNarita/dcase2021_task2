@@ -24,7 +24,7 @@ import datetime
 import os
 import sys
 from itertools import chain
-
+import random
 # Related third party imports.
 import joblib
 import numpy
@@ -34,7 +34,8 @@ import torch.utils.data
 from scipy.special import softmax
 from torch import optim
 from torchinfo import summary
-#from tqdm import tqdm
+from tqdm import tqdm
+from torch.utils.tensorboard import SummaryWriter
 
 # Local application/library specific imports.
 import util
@@ -46,6 +47,15 @@ CONFIG = util.load_yaml("./config.yaml")
 # String constant: "cuda:0" or "cpu"
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+def set_seed(seed: int = 42):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    numpy.random.seed(seed)
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+set_seed(42)
 
 def flatten(nested_list):
     """
@@ -154,7 +164,6 @@ class DcaseDataset(torch.utils.data.Dataset):
 
         return sample, label
 
-
 def get_dataloader(dataset):
     """
     Make dataloader from dataset for training.
@@ -169,12 +178,16 @@ def get_dataloader(dataset):
         batch_size=CONFIG["training"]["batch_size"],
         shuffle=CONFIG["training"]["shuffle"],
         drop_last=True,
+        num_workers=2,
+        pin_memory=True,
     )
     data_loader_val = torch.utils.data.DataLoader(
         val_dataset,
         batch_size=CONFIG["training"]["batch_size"],
         shuffle=False,
         drop_last=False,
+        num_workers=2,
+        pin_memory=True,
     )
 
     # dataloader of training data for evaluation only
@@ -183,6 +196,8 @@ def get_dataloader(dataset):
         batch_size=CONFIG["training"]["batch_size"],
         shuffle=False,
         drop_last=False,
+        num_workers=2,
+        pin_memory=True,
     )
 
     return data_loader_train, data_loader_val, data_loader_eval_train
@@ -215,73 +230,6 @@ def get_optimizer(model):
     )
 
     return optimizer, scheduler
-
-
-def training(model, data_loader, optimizer, scheduler=None):
-    """
-    Perform training
-    """
-    model.train()  # training mode
-    train_loss = 0.0
-    for data, label in data_loader:
-        data = data.to(DEVICE).float()
-        label = label.to(DEVICE).long()
-        optimizer.zero_grad()  # reset gradient
-        loss = model.get_loss(data, label)
-        loss.backward()  # backpropagation
-        train_loss += loss.item()
-        optimizer.step()  # update paramerters
-    # imshow
-    if scheduler is not None:
-        scheduler.step()  # update learning rate
-    _ = model.get_loss(data, label, imshow=True)
-    print("loss: {:.6f} - ".format(train_loss / len(data_loader)))
-    # model.eval()
-    # correct = 0
-    # total = 0
-    # with torch.no_grad():
-    #     for data, label in data_loader:
-    #         data = data.to(DEVICE).float()
-    #         label = label.to(DEVICE).long()
-    #         outputs = model.get_loss(data)
-    #         _, predicted = torch.max(outputs, 1)
-    #         correct += (predicted == label).sum().item()
-    #         total += label.size(0)
-
-    # print(
-    #     "accuracy: {:.6f}% ({}/{})".format(
-    #         100 * float(correct / total), correct, total
-    #     ),
-    # )
-
-
-def validation(model, data_loader):
-    """
-    Perform validation
-    """
-    model.eval()  # validation mode
-    val_loss = 0.0
-    correct = 0
-    total = 0
-    with torch.no_grad():
-        for data, label in data_loader:
-            data = data.to(DEVICE).float()
-            label = label.to(DEVICE).long()
-            loss = model.get_loss(data, label)
-            val_loss += loss.item()
-
-            #outputs = model(data)
-            # _, predicted = torch.max(outputs, 1)
-            # correct += (predicted == label).sum().item()
-            # total += label.size(0)
-
-    print("loss: {:.6f} - ".format(val_loss / len(data_loader)), end="")
-    # print(
-    #     "accuracy: {:.6f}% ({}/{})".format(
-    #         100 * float(correct / total), correct, total
-    #     ),
-    # )
-
 
 def calc_anomaly_score(model, file_path, section_index):
     """
@@ -377,7 +325,74 @@ def save_model(model, model_dir, machine_type):
     #     continue
     torch.save(model.state_dict(), model_file_path)
     print("save_model -> %s" % (model_file_path))
+    
+    
+def training(model, data_loader, optimizer, scheduler=None):
+    """
+    Perform training
+    """
+    model.train()  # training mode
+    train_loss = 0.0
+    for data, label in data_loader:
+        data = data.to(DEVICE).float()
+        label = label.to(DEVICE).long()
+        optimizer.zero_grad()  # reset gradient
+        loss = model.get_loss(data, label)
+        loss.backward()  # backpropagation
+        train_loss += loss.item()
+        optimizer.step()  # update paramerters
 
+    if scheduler is not None:
+        scheduler.step()  # update learning rate
+    #_ = model.get_loss(data, label, imshow=True)
+    # model.eval()
+    # correct = 0
+    # total = 0
+    # with torch.no_grad():
+    #     for data, label in data_loader:
+    #         data = data.to(DEVICE).float()
+    #         label = label.to(DEVICE).long()
+    #         outputs = model.get_loss(data)
+    #         _, predicted = torch.max(outputs, 1)
+    #         correct += (predicted == label).sum().item()
+    #         total += label.size(0)
+    loss = train_loss / len(data_loader)
+    print("loss: {:.6f} - ".format(train_loss / len(data_loader)))
+    # print(
+    #     "accuracy: {:.6f}% ({}/{})".format(
+    #         100 * float(correct / total), correct, total
+    #     ),
+    # )
+    return loss
+
+def validation(model, data_loader):
+    """
+    Perform validation
+    """
+    model.eval()  # validation mode
+    val_loss = 0.0
+    with torch.no_grad():
+        for data, label in data_loader:
+            data = data.to(DEVICE).float()
+            label = label.to(DEVICE).long()
+            loss = model.get_loss(data, label)
+            loss = loss.mean()
+            val_loss += loss.item()
+        # for debug ########################################
+        #_ = model.get_loss(data, label, imshow=True)
+        ####################################################
+            #outputs = model(data)
+            # _, predicted = torch.max(outputs, 1)
+            # correct += (predicted == label).sum().item()
+            # total += label.size(0)
+    loss = val_loss / len(data_loader)
+    print("loss: {:.6f} - ".format(val_loss / len(data_loader)))
+    # print(
+    #     "accuracy: {:.6f}% ({}/{})".format(
+    #         100 * float(correct / total), correct, total
+    #     ),
+    # )
+    return loss
 
 def main():
     """
@@ -393,11 +408,11 @@ def main():
 
     # make output directory
     os.makedirs(CONFIG["model_directory"], exist_ok=True)
-
+    
     # load base_directory list
     dir_list = util.select_dirs(config=CONFIG, mode=mode)
-
-    for idx, target_dir in enumerate(dir_list):
+    
+    for idx, target_dir in enumerate(list(dir_list[6])):
         print("===============================================")
         print("[%d/%d] %s" % (idx + 1, len(dir_list), target_dir))
 
@@ -411,7 +426,7 @@ def main():
 
         print("\n============== DATASET_GENERATOR ==============")
         # for debug ########################################
-        unique_section_names = unique_section_names[0:1]
+        #unique_section_names = unique_section_names[0:1]
         ####################################################
         dcase_dataset = DcaseDataset(unique_section_names, target_dir, mode)
         print("===============================================")
@@ -440,28 +455,37 @@ def main():
         #        CONFIG["feature"]["n_mels"],
         #    ),
         #)
-
+        #tensorboard
+        machine_type = os.path.split(target_dir)[1]
+        TB_DIR = CONFIG['tensorboard_directory']
+        tb_log_dir = f'{TB_DIR}/{machine_type}'
+        os.makedirs(tb_log_dir, exist_ok=True)
+        writer = SummaryWriter(log_dir = tb_log_dir)
+        
         # training loop
         for epoch in range(1, CONFIG["training"]["epochs"] + 1):
             now = datetime.datetime.now()
             now_str = now.strftime("%Y/%m/%d %H:%M:%S")
             print("{} Epoch {:2d} Train: ".format(now_str, epoch), end="")
+            tr_loss = \
             training(
                 model=model,
                 data_loader=data_loader["train"],
                 optimizer=optimizer,
                 # scheduler=scheduler  # optional
             )
+            writer.add_scalar("tr_loss", tr_loss, epoch+1)
             #now = datetime.datetime.now()
             #now_str = now.strftime("%Y/%m/%d %H:%M:%S")
-            #print("{} Epoch {:2d} Valid: ".format(now_str, epoch), end="")
-            #validation(model=model, data_loader=data_loader["val"])
-
+            print("{} Epoch {:2d} Valid: ".format(now_str, epoch), end="")
+            val_loss = validation(model=model, data_loader=data_loader["val"])
+            writer.add_scalar("val_loss", val_loss, epoch+1)
+            
         del dcase_dataset, data_loader
 
         # fit gamma distribution for anomaly scores
         # and save the parameters of the distribution
-        fit_gamma_dist(model=model, target_dir=target_dir, mode=mode)
+        #fit_gamma_dist(model=model, target_dir=target_dir, mode=mode)
 
         print("============== SAVE MODEL ==============")
         save_model(
@@ -471,7 +495,5 @@ def main():
         )
 
         print("============== END TRAINING ==============")
-
-
 if __name__ == "__main__":
     main()
