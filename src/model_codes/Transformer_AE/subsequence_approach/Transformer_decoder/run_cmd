@@ -1,0 +1,1 @@
+python3 -u training.py --dev | tee /media/hiroki/HDD1TB/research/dcase2021_task2/output/SubSeq_Approach/Transformer_Decoder_ex2/result.log

@@ -1,0 +1,37 @@
+load_directory <- development
+===============================================
+[1/7] /media/hiroki/HDD1TB/research/dcase2021_task2/datasets_add/dev_data/ToyCar
+
+============== DATASET_GENERATOR ==============
+target_dir : /media/hiroki/HDD1TB/research/dcase2021_task2/datasets_add/dev_data/ToyCar_section_00
+number of files : 1003
+===============================================
+
+=========== DATALOADER_GENERATOR ==============
+===============================================
+
+================ MODEL TRAINING ===============
+2021/05/07 14:47:36 Epoch  1 Train: mask torch.Size([64, 64])
+inputs torch.Size([32, 64, 128])
+Traceback (most recent call last):
+  File "training.py", line 476, in <module>
+    main()
+  File "training.py", line 448, in main
+    training(
+  File "training.py", line 229, in training
+    loss = model.get_loss(data, label)
+  File "/home/hiroki/research/dcase2021_task2/src/model_codes/Transformer_AE/subsequence_approach/Transformer_decoder/pytorch_model.py", line 92, in get_loss
+    outputs = self.forward(inputs)
+  File "/home/hiroki/research/dcase2021_task2/src/model_codes/Transformer_AE/subsequence_approach/Transformer_decoder/pytorch_model.py", line 69, in forward
+    outputs = self.decoder_block1(outputs, mask)
+  File "/home/hiroki/anaconda3/lib/python3.8/site-packages/torch/nn/modules/module.py", line 889, in _call_impl
+    result = self.forward(*input, **kwargs)
+  File "/home/hiroki/research/dcase2021_task2/src/model_codes/Transformer_AE/subsequence_approach/Transformer_decoder/pytorch_model.py", line 38, in forward
+    attn_output, _ = self.self_attn(x, x, x, attn_mask=mask)
+  File "/home/hiroki/anaconda3/lib/python3.8/site-packages/torch/nn/modules/module.py", line 889, in _call_impl
+    result = self.forward(*input, **kwargs)
+  File "/home/hiroki/anaconda3/lib/python3.8/site-packages/torch/nn/modules/activation.py", line 980, in forward
+    return F.multi_head_attention_forward(
+  File "/home/hiroki/anaconda3/lib/python3.8/site-packages/torch/nn/functional.py", line 4729, in multi_head_attention_forward
+    raise RuntimeError("The size of the 2D attn_mask is not correct.")
+RuntimeError: The size of the 2D attn_mask is not correct.
