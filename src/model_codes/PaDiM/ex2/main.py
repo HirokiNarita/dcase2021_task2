@@ -60,8 +60,8 @@ def main():
                      classes_num=527,) # なんでもいい
     pretrained_dict = torch.load(CONFIG['IO_OPTION']['PREMODEL_ROOT'])
     model.load_state_dict(pretrained_dict['model'], strict=True)
-    t_d = 64    # 全特徴量(64+128+256=448)
-    d = 64      # 使う特徴量数
+    t_d = 128    # 全特徴量(64+128+256=448)
+    d = 128      # 使う特徴量数
     ##########################################################
     model.to(device)
     model.eval()
@@ -83,9 +83,9 @@ def main():
 
     print(model.logmel_extractor)
     
-    model.resnet.layer1[-1].register_forward_hook(hook)
-    #model.conv_block2.register_forward_hook(hook)
-    #model.conv_block3.register_forward_hook(hook)
+    #model.resnet.layer1[-1].register_forward_hook(hook)
+    model.resnet.layer2[-1].register_forward_hook(hook)
+    #model.resnet.layer3[-1].register_forward_hook(hook)
     
     # for test
     inputs = []
@@ -114,14 +114,14 @@ def main():
         # is_train = phase に変える
         train_dataset = DCASE2021_task2.DCASE2021_task2_Dataset(CONFIG['IO_OPTION']['INPUT_ROOT'], class_name=class_name, phase='train')
         train_dataloader = DataLoader(train_dataset, batch_size=CONFIG['param']['batch_size'], num_workers=2, pin_memory=True)
-        test_dataset = DCASE2021_task2.DCASE2021_task2_Dataset(CONFIG['IO_OPTION']['INPUT_ROOT'], class_name=class_name, phase='source_test')
+        test_dataset = DCASE2021_task2.DCASE2021_task2_Dataset(CONFIG['IO_OPTION']['INPUT_ROOT'], class_name=class_name, phase='target_test')
         test_dataloader = DataLoader(test_dataset, batch_size=CONFIG['param']['batch_size'], num_workers=2, pin_memory=True)
         # それぞれのレイヤをdictで管理
         # OrderedDict -> 追加された順番がわかるdict
         #train_outputs = OrderedDict([('layer1', []), ('layer2', []), ('layer3', [])])
         #test_outputs = OrderedDict([('layer1', []), ('layer2', []), ('layer3', [])])
-        train_outputs = OrderedDict([('layer1', [])])
-        test_outputs = OrderedDict([('layer1', [])])
+        train_outputs = OrderedDict([('layer2', [])])
+        test_outputs = OrderedDict([('layer2', [])])
         # extract train set features (trainの特徴抽出)
         train_feature_filepath = os.path.join(CONFIG['IO_OPTION']['OUTPUT_ROOT'], 'temp_%s' % arch, 'train_%s.pkl' % class_name)
         ############################################# 学習フェーズ #################################################
@@ -154,7 +154,7 @@ def main():
             # Embedding concat
             # embedding_concatを使ってパッチごとに特徴を集める
             # layer1を起点にlayer2,layer3の対応する部分を集めてると思われる
-            embedding_vectors = train_outputs.pop('layer1')
+            embedding_vectors = train_outputs.pop('layer2')
             #for layer_name in ['layer2', 'layer3']:
             #    embedding_vectors = embedding_concat(embedding_vectors, train_outputs.pop(layer_name))
             #    # del train_outputs
@@ -173,7 +173,7 @@ def main():
             cov = torch.zeros(C, C, H * W).numpy()
             I = np.identity(C)
             # パッチごとにMVG
-            for i in tqdm(range(H * W), '| calc MVG | test | %s |' % class_name):
+            for i in tqdm(range(H * W), '| calc MVG | train | %s |' % class_name):
                 # cov[:, :, i] = LedoitWolf().fit(embedding_vectors[:, :, i].numpy()).covariance_
                 cov[:, :, i] = np.cov(embedding_vectors[:, :, i].numpy(), rowvar=False) + 0.01 * I
             # save learned distribution (保存)
@@ -188,11 +188,6 @@ def main():
                 train_outputs = pickle.load(f)
         ############################################################################################################
         ############################################# 推論フェーズ #################################################
-        # つかわない変数###
-        # - mask
-        # - gt_mask_list
-        # - 
-        ###################
         
         # 異常部位のground truthがあれば使う（こんかいはつかわない）
         gt_list = []
@@ -210,6 +205,7 @@ def main():
             test_imgs.extend(inputs[0].cpu().detach().numpy())
             # get intermediate layer outputs
             for k, v in zip(test_outputs.keys(), outputs):
+                v = v.cpu().detach()
                 test_outputs[k].append(v.cpu().detach())
             # initialize hook outputs
             outputs = []
@@ -219,7 +215,7 @@ def main():
             test_outputs[k] = torch.cat(v, 0)
         
         # Embedding concat
-        embedding_vectors = test_outputs['layer1']
+        embedding_vectors = test_outputs['layer2']
         #for layer_name in ['layer2', 'layer3']:
         #    embedding_vectors = embedding_concat(embedding_vectors, test_outputs[layer_name])
         # 時間方向にmeanをしてしまえば、位置情報をきにしなくて良さそう
@@ -297,9 +293,9 @@ def main():
     fig_img_rocauc.legend(loc="lower right")
 
     # こっちはやらない(異常部位ground truthがないので)################################
-    #print('Average pixel ROCUAC: %.3f' % np.mean(total_pixel_roc_auc))
-    #fig_pixel_rocauc.title.set_text('Average pixel ROCAUC: %.3f' % np.mean(total_pixel_roc_auc))
-    #fig_pixel_rocauc.legend(loc="lower right")
+    print('Average pixel ROCUAC: %.3f' % np.mean(total_pixel_roc_auc))
+    fig_pixel_rocauc.title.set_text('Average pixel ROCAUC: %.3f' % np.mean(total_pixel_roc_auc))
+    fig_pixel_rocauc.legend(loc="lower right")
     ##################################################################################
 
     fig.tight_layout()
@@ -315,20 +311,13 @@ def plot_fig(test_img, scores, save_dir, class_name):
         #img = denormalization(img)
         #gt = gts[i].transpose(1, 2, 0).squeeze()
         heat_map = scores[i]# * 255
-        #mask = scores[i]
-        #mask[mask > threshold] = 1
-        #mask[mask <= threshold] = 0
-        #kernel = morphology.disk(4)
-        #mask = morphology.opening(mask, kernel)
-        #mask *= 255
-        #vis_img = mark_boundaries(img, mask, color=(1, 0, 0), mode='thick')
         fig_img, ax_img = plt.subplots(1, 2, figsize=(12, 3))
         fig_img.subplots_adjust(right=0.9)
         # vmin, vmaxをスペクトログラムの場合変えるべきか？
         norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
-        for ax_i in ax_img:
-            ax_i.axes.xaxis.set_visible(False)
-            ax_i.axes.yaxis.set_visible(False)
+        #for ax_i in ax_img:
+            #ax_i.axes.xaxis.set_visible(False)
+            #ax_i.axes.yaxis.set_visible(False)
         # show test_img
         ax_img[0].imshow(img.T)
         ax_img[0].title.set_text('Image')
@@ -338,25 +327,21 @@ def plot_fig(test_img, scores, save_dir, class_name):
         ax_img[1].imshow(img.T, cmap='gray', interpolation='none')
         ax_img[1].imshow(heat_map.T, cmap='jet', alpha=0.5, interpolation='none')
         ax_img[1].title.set_text('Predicted heat map')
-        #ax_img[3].imshow(mask, cmap='gray')
-        #ax_img[3].title.set_text('Predicted mask')
-        #ax_img[4].imshow(vis_img)
-        #ax_img[4].title.set_text('Segmentation result')
         left = 0.92
         bottom = 0.15
         width = 0.015
         height = 1 - 2 * bottom
-        rect = [left, bottom, width, height]
-        cbar_ax = fig_img.add_axes(rect)
-        cb = plt.colorbar(ax, shrink=0.6, cax=cbar_ax, fraction=0.046)
-        cb.ax.tick_params(labelsize=8)
+        #rect = [left, bottom, width, height]
+        #cbar_ax = fig_img.add_axes(rect)
+        #cb = plt.colorbar(ax, shrink=0.6, cax=cbar_ax, fraction=0.046)
+        #cb.ax.tick_params(labelsize=8)
         font = {
             'family': 'serif',
             'color': 'black',
             'weight': 'normal',
             'size': 8,
         }
-        cb.set_label('Anomaly Score', fontdict=font)
+        #cb.set_label('Anomaly Score', fontdict=font)
 
         fig_img.savefig(os.path.join(save_dir, class_name + '_{}'.format(i)), dpi=100)
         plt.close()
