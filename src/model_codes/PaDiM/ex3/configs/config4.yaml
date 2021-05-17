@@ -1,0 +1,20 @@
+IO_OPTION:
+  INPUT_ROOT: '/media/hiroki/HDD1TB/research/dcase2021_task2/datasets_add/dev_data'
+  OUTPUT_ROOT: '/media/hiroki/HDD1TB/research/dcase2021_task2/output/PaDiM/ex1'
+  PREMODEL_ROOT: '/home/hiroki/research/dcase2021_task2/input/PANNs/pre_trained_model/ResNet38_mAP=0.434.pth'
+  
+param:
+  # feature
+  sample_rate: 16000
+  window_size: 1024
+  hop_size: 1024
+  mel_bins: 64
+  fmin: 50
+  fmax: 8000
+  # dataloader
+  batch_size : 128
+  shuffle : False
+  num_epochs : 1
+  # etc
+  devise : 'cuda'
+  max_fpr : 0.1

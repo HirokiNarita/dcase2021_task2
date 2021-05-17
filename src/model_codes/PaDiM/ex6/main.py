@@ -3,6 +3,7 @@ from random import sample
 import argparse
 import numpy as np
 import os
+import gc
 import pickle
 from tqdm import tqdm
 from collections import OrderedDict
@@ -44,6 +45,11 @@ def parse_args():
     parser.add_argument('--arch', type=str, choices=['resnet18', 'wide_resnet50_2'], default='wide_resnet50_2')
     return parser.parse_args()
 
+def zscore(x, dim = None):
+    xmean = x.mean(dim=dim, keepdims=True)
+    xstd  = torch.std(x, dim=dim, keepdims=True)
+    zscore = (x-xmean)/xstd
+    return zscore
 
 def main():
     ##########################################################
@@ -59,9 +65,11 @@ def main():
                      fmax=CONFIG['param']['fmax'],
                      classes_num=527,) # なんでもいい
     pretrained_dict = torch.load(CONFIG['IO_OPTION']['PREMODEL_ROOT'])
+    
     model.load_state_dict(pretrained_dict['model'], strict=True)
-    t_d = 64    # 全特徴量(64+128+256=448)
-    d = 64      # 使う特徴量数
+    
+    t_d = 448    # 全特徴量(64+128+256=448)
+    d = 448     # 使う特徴量数
     ##########################################################
     model.to(device)
     model.eval()
@@ -79,13 +87,17 @@ def main():
     outputs = []
     # hook functionで中間出力をappendする
     def hook(module, input, output):
+        # (Batch, Ch, Time, Mel)
+        B, C, T, M = output.size()
+        output = output.view(B*C, T, M)
+        output = torch.bmm(output.transpose(1, 2), output, out=None)
+        output = output.view(B, C, M, M)
         outputs.append(output)
-
-    print(model.logmel_extractor)
     
     model.resnet.layer1[-1].register_forward_hook(hook)
-    #model.conv_block2.register_forward_hook(hook)
-    #model.conv_block3.register_forward_hook(hook)
+    model.resnet.layer2[-1].register_forward_hook(hook)
+    model.resnet.layer3[-1].register_forward_hook(hook)
+    #model.resnet.layer4[-1].register_forward_hook(hook)
     
     # for test
     inputs = []
@@ -114,14 +126,14 @@ def main():
         # is_train = phase に変える
         train_dataset = DCASE2021_task2.DCASE2021_task2_Dataset(CONFIG['IO_OPTION']['INPUT_ROOT'], class_name=class_name, phase='train')
         train_dataloader = DataLoader(train_dataset, batch_size=CONFIG['param']['batch_size'], num_workers=2, pin_memory=True)
-        test_dataset = DCASE2021_task2.DCASE2021_task2_Dataset(CONFIG['IO_OPTION']['INPUT_ROOT'], class_name=class_name, phase='source_test')
+        test_dataset = DCASE2021_task2.DCASE2021_task2_Dataset(CONFIG['IO_OPTION']['INPUT_ROOT'], class_name=class_name, phase='test')
         test_dataloader = DataLoader(test_dataset, batch_size=CONFIG['param']['batch_size'], num_workers=2, pin_memory=True)
         # それぞれのレイヤをdictで管理
         # OrderedDict -> 追加された順番がわかるdict
-        #train_outputs = OrderedDict([('layer1', []), ('layer2', []), ('layer3', [])])
-        #test_outputs = OrderedDict([('layer1', []), ('layer2', []), ('layer3', [])])
-        train_outputs = OrderedDict([('layer1', [])])
-        test_outputs = OrderedDict([('layer1', [])])
+        train_outputs = OrderedDict([('layer1', []), ('layer2', []), ('layer3', [])])
+        test_outputs = OrderedDict([('layer1', []), ('layer2', []), ('layer3', [])])
+        #train_outputs = OrderedDict([('layer1', [])])
+        #test_outputs = OrderedDict([('layer1', [])])
         # extract train set features (trainの特徴抽出)
         train_feature_filepath = os.path.join(CONFIG['IO_OPTION']['OUTPUT_ROOT'], 'temp_%s' % arch, 'train_%s.pkl' % class_name)
         ############################################# 学習フェーズ #################################################
@@ -145,25 +157,20 @@ def main():
                 num_iter = 1
                 # initialize hook outputs
                 outputs = []
-            # key = 'layer1'... value = 値
-            # appendされていたやつをcat
-            # train_outputs[k] = (n_sample, Ch, H, W)
-            #for k, v in train_outputs.items():
-            #    train_outputs[k] = torch.cat(v, 0)
 
             # Embedding concat
             # embedding_concatを使ってパッチごとに特徴を集める
             # layer1を起点にlayer2,layer3の対応する部分を集めてると思われる
             embedding_vectors = train_outputs.pop('layer1')
-            #for layer_name in ['layer2', 'layer3']:
-            #    embedding_vectors = embedding_concat(embedding_vectors, train_outputs.pop(layer_name))
-            #    # del train_outputs
-            #    train_outputs[layer_name] = []
-            # randomly select d dimension(d次元をランダムに選択)
-            # torch.index_select (https://pytorch.org/docs/stable/generated/torch.index_select.html)
+            for layer_name in ['layer2', 'layer3']:
+                embedding_vectors = embedding_concat(embedding_vectors, train_outputs.pop(layer_name))
+                # del train_outputs
+                #train_outputs[layer_name] = []
             # embedding_vectorsのdim1に沿ってindices = [0,2,4](idx)を取得（サンプルを取得してる)
             # 0~t_d idxの中からランダムにd個サンプリングする
             embedding_vectors = torch.index_select(embedding_vectors, 1, idx)
+            #print(embedding_vectors.shape)
+            #torch.Size([6018, 128, 250, 16])
             ####################### calculate multivariate Gaussian distribution (MVG計算)##########################
             # PaDiMではパッチごとにMVGを作成する
             #print(embedding_vectors.size())
@@ -173,8 +180,8 @@ def main():
             cov = torch.zeros(C, C, H * W).numpy()
             I = np.identity(C)
             # パッチごとにMVG
-            for i in tqdm(range(H * W), '| calc MVG | test | %s |' % class_name):
-                # cov[:, :, i] = LedoitWolf().fit(embedding_vectors[:, :, i].numpy()).covariance_
+            for i in tqdm(range(H * W), '| calc MVG | train | %s |' % class_name):
+                #cov[:, :, i] = LedoitWolf().fit(embedding_vectors[:, :, i].numpy()).covariance_
                 cov[:, :, i] = np.cov(embedding_vectors[:, :, i].numpy(), rowvar=False) + 0.01 * I
             # save learned distribution (保存)
             train_outputs = [mean, cov]
@@ -188,29 +195,23 @@ def main():
                 train_outputs = pickle.load(f)
         ############################################################################################################
         ############################################# 推論フェーズ #################################################
-        # つかわない変数###
-        # - mask
-        # - gt_mask_list
-        # - 
-        ###################
         
-        # 異常部位のground truthがあれば使う（こんかいはつかわない）
         gt_list = []
-        #gt_mask_list = []
         test_imgs = []
+        wav_names = []
         model.logmel_extractor.register_forward_hook(in_hook)
         # extract test set features (trainのときと一緒)##################################################
         for (x, y, wav_name) in tqdm(test_dataloader, '| feature extraction | test | %s |' % class_name):
-            #test_imgs.extend(x.cpu().detach().numpy())
             gt_list.extend(y.cpu().detach().numpy())
-            #gt_mask_list.extend(mask.cpu().detach().numpy())
             # model prediction
             with torch.no_grad():
                 _ = model(x.to(device))
             test_imgs.extend(inputs[0].cpu().detach().numpy())
             # get intermediate layer outputs
             for k, v in zip(test_outputs.keys(), outputs):
+                v = v.cpu().detach()
                 test_outputs[k].append(v.cpu().detach())
+            wav_names.extend(wav_name)
             # initialize hook outputs
             outputs = []
             inputs = []
@@ -220,9 +221,8 @@ def main():
         
         # Embedding concat
         embedding_vectors = test_outputs['layer1']
-        #for layer_name in ['layer2', 'layer3']:
-        #    embedding_vectors = embedding_concat(embedding_vectors, test_outputs[layer_name])
-        # 時間方向にmeanをしてしまえば、位置情報をきにしなくて良さそう
+        for layer_name in ['layer2', 'layer3']:
+            embedding_vectors = embedding_concat(embedding_vectors, test_outputs[layer_name])
         # randomly select d dimension
         embedding_vectors = torch.index_select(embedding_vectors, 1, idx)
         #######################################　マハラノビス距離計算　###############################################
@@ -242,15 +242,13 @@ def main():
         # 最終的に(B,H,W)の異常スコアマップが出力される
         dist_list = np.array(dist_list).transpose(1, 0).reshape(B, H, W)
 
-        # upsample(リサイズしたやつをもとにもどす)　# わからん
         dist_list = torch.tensor(dist_list)
         score_map = dist_list.unsqueeze(1).squeeze().numpy()
-        # わからん(ノイズ除去？)
+
         # apply gaussian smoothing on the score map(スコアマップにガウシアン・スムージングを適用する)
         for i in range(score_map.shape[0]):
             score_map[i] = gaussian_filter(score_map[i], sigma=4)
         
-        # なんでやるかわからん
         # Normalization
         max_score = score_map.max()
         min_score = score_map.min()
@@ -258,36 +256,43 @@ def main():
         
         ####################################### 評価 ######################################
         # calculate image-level ROC AUC score
-        # 最大値を異常スコアにする
-        img_scores = scores.reshape(scores.shape[0], -1).mean(axis=1)
+        # 最大値/平均を異常スコアにする
         gt_list = np.asarray(gt_list)
-        fpr, tpr, _ = roc_curve(gt_list, img_scores)
-        img_roc_auc = roc_auc_score(gt_list, img_scores)
+        for ano_criterion in ['MAX', 'MEAN']:
+            if ano_criterion == 'MAX':
+                max_img_scores = scores.reshape(scores.shape[0], -1).max(axis=1)
+                max_fpr, max_tpr, _ = roc_curve(gt_list, max_img_scores)
+                max_img_roc_auc = roc_auc_score(gt_list, max_img_scores)
+                max_img_roc_pauc = roc_auc_score(gt_list, max_img_scores, max_fpr=CONFIG['param']['max_fpr'])
+                print(f'criterion == {ano_criterion} '+'image ROCAUC: %.3f' % (max_img_roc_auc))
+                print(f'criterion == {ano_criterion} '+'image ROCpAUC: %.3f' % (max_img_roc_pauc))
+            else:
+                mean_img_scores = scores.reshape(scores.shape[0], -1).mean(axis=1)
+                mean_fpr, mean_tpr, _ = roc_curve(gt_list, mean_img_scores)
+                mean_img_roc_auc = roc_auc_score(gt_list, mean_img_scores)
+                mean_img_roc_pauc = roc_auc_score(gt_list, mean_img_scores, max_fpr=CONFIG['param']['max_fpr'])
+                print(f'criterion == {ano_criterion} '+'image ROCAUC: %.3f' % (mean_img_roc_auc))
+                print(f'criterion == {ano_criterion} '+'image ROCpAUC: %.3f' % (mean_img_roc_pauc))
+            
+        if mean_img_roc_auc < max_img_roc_auc:
+            #img_scores = max_img_scores
+            fpr, tpr = max_fpr, max_tpr
+            img_roc_auc = max_img_roc_auc
+        else:
+            #img_scores = mean_img_scores
+            fpr, tpr = mean_fpr, mean_tpr
+            img_roc_auc = mean_img_roc_auc
+
+        
         total_roc_auc.append(img_roc_auc)
-        print('image ROCAUC: %.3f' % (img_roc_auc))
+        
         fig_img_rocauc.plot(fpr, tpr, label='%s img_ROCAUC: %.3f' % (class_name, img_roc_auc))
         ###################################################################################
-        
-        ######################################### やらない（？）####################################################
-        # get optimal threshold(最適な閾値を得る) 
-        #gt_mask = np.asarray(gt_mask_list)
-        #precision, recall, thresholds = precision_recall_curve(gt_mask.flatten(), scores.flatten())
-        #a = 2 * precision * recall
-        #b = precision + recall
-        #f1 = np.divide(a, b, out=np.zeros_like(a), where=b != 0)
-        #threshold = thresholds[np.argmax(f1)]
 
-        # calculate per-pixel level ROCAUC(ピクセル単位のROCAUCを算出)
-        #fpr, tpr, _ = roc_curve(gt_mask.flatten(), scores.flatten())
-        #per_pixel_rocauc = roc_auc_score(gt_mask.flatten(), scores.flatten())
-        #total_pixel_roc_auc.append(per_pixel_rocauc)
-        #print('pixel ROCAUC: %.3f' % (per_pixel_rocauc))
-
-        #fig_pixel_rocauc.plot(fpr, tpr, label='%s ROCAUC: %.3f' % (class_name, per_pixel_rocauc))
         save_dir = CONFIG['IO_OPTION']['OUTPUT_ROOT'] + '/' + f'pictures_{arch}'
         os.makedirs(save_dir, exist_ok=True)
-        #plot_fig(test_imgs, scores, gt_mask_list, threshold, save_dir, class_name)
-        plot_fig(test_imgs, scores, save_dir, class_name)
+        if CONFIG['param']['plot_heatmap'] == True:
+            plot_fig(test_imgs, scores, save_dir, class_name, wav_names)
 
         ############################################################################################################
     
@@ -297,16 +302,16 @@ def main():
     fig_img_rocauc.legend(loc="lower right")
 
     # こっちはやらない(異常部位ground truthがないので)################################
-    #print('Average pixel ROCUAC: %.3f' % np.mean(total_pixel_roc_auc))
-    #fig_pixel_rocauc.title.set_text('Average pixel ROCAUC: %.3f' % np.mean(total_pixel_roc_auc))
-    #fig_pixel_rocauc.legend(loc="lower right")
+    print('Average pixel ROCUAC: %.3f' % np.mean(total_pixel_roc_auc))
+    fig_pixel_rocauc.title.set_text('Average pixel ROCAUC: %.3f' % np.mean(total_pixel_roc_auc))
+    fig_pixel_rocauc.legend(loc="lower right")
     ##################################################################################
 
     fig.tight_layout()
     fig.savefig(os.path.join(CONFIG['IO_OPTION']['OUTPUT_ROOT'], 'roc_curve.png'), dpi=100)
 
 #def plot_fig(test_img, scores, gts, threshold, save_dir, class_name):
-def plot_fig(test_img, scores, save_dir, class_name):
+def plot_fig(test_img, scores, save_dir, class_name, wav_names):
     num = len(scores)
     vmax = scores.max()
     vmin = scores.min()
@@ -315,33 +320,20 @@ def plot_fig(test_img, scores, save_dir, class_name):
         #img = denormalization(img)
         #gt = gts[i].transpose(1, 2, 0).squeeze()
         heat_map = scores[i]# * 255
-        #mask = scores[i]
-        #mask[mask > threshold] = 1
-        #mask[mask <= threshold] = 0
-        #kernel = morphology.disk(4)
-        #mask = morphology.opening(mask, kernel)
-        #mask *= 255
-        #vis_img = mark_boundaries(img, mask, color=(1, 0, 0), mode='thick')
         fig_img, ax_img = plt.subplots(1, 2, figsize=(12, 3))
         fig_img.subplots_adjust(right=0.9)
         # vmin, vmaxをスペクトログラムの場合変えるべきか？
         norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
-        for ax_i in ax_img:
-            ax_i.axes.xaxis.set_visible(False)
-            ax_i.axes.yaxis.set_visible(False)
+        #for ax_i in ax_img:
+        #    ax_i.axes.xaxis.set_visible(False)
+        #    ax_i.axes.yaxis.set_visible(False)
         # show test_img
         ax_img[0].imshow(img.T)
         ax_img[0].title.set_text('Image')
-        #ax_img[1].imshow(gt, cmap='gray')
-        #ax_img[1].title.set_text('GroundTruth')
         ax = ax_img[1].imshow(heat_map.T, cmap='jet', norm=norm)
         ax_img[1].imshow(img.T, cmap='gray', interpolation='none')
         ax_img[1].imshow(heat_map.T, cmap='jet', alpha=0.5, interpolation='none')
         ax_img[1].title.set_text('Predicted heat map')
-        #ax_img[3].imshow(mask, cmap='gray')
-        #ax_img[3].title.set_text('Predicted mask')
-        #ax_img[4].imshow(vis_img)
-        #ax_img[4].title.set_text('Segmentation result')
         left = 0.92
         bottom = 0.15
         width = 0.015
@@ -357,8 +349,8 @@ def plot_fig(test_img, scores, save_dir, class_name):
             'size': 8,
         }
         cb.set_label('Anomaly Score', fontdict=font)
-
-        fig_img.savefig(os.path.join(save_dir, class_name + '_{}'.format(i)), dpi=100)
+        wav_name = os.path.splitext(os.path.basename(wav_names[i]))[0]
+        fig_img.savefig(os.path.join(save_dir, f'{class_name}_{wav_name}.png'), dpi=100)
         plt.close()
 
 # これはMVtech用なので作り直す必要あり
@@ -380,7 +372,7 @@ def embedding_concat(x, y):
     s = int(H1 / H2)
     x = F.unfold(x, kernel_size=s, dilation=1, stride=s)
     x = x.view(B, C1, -1, H2, W2)
-    z = torch.zeros(B, C1 + C2, x.size(2), H2, W2).cuda()
+    z = torch.zeros(B, C1 + C2, x.size(2), H2, W2)
     for i in range(x.size(2)):
         z[:, :, i, :, :] = torch.cat((x[:, :, i, :, :], y), 1)
     z = z.view(B, -1, H2 * W2)
