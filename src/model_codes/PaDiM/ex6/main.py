@@ -25,6 +25,7 @@ from torchvision.models import wide_resnet50_2, resnet18
 from models import ResNet38, Cnn14_16k
 import datasets.mvtec as mvtec
 import DCASE2021_task2
+from DCASE_util import DCASE2021_Task2_Score_Calculator
 
 # CONFIG
 import yaml
@@ -121,7 +122,9 @@ def main():
     # 抽出
     ###########################################################
     # データタイプごとにループ
-    for class_name in DCASE2021_task2.CLASS_NAMES:
+    CLASS_NAMES = DCASE2021_task2.CLASS_NAMES
+    for class_name in CLASS_NAMES:
+        score_calculator = DCASE2021_Task2_Score_Calculator(class_name=class_name, mode='dev')
         # データセット/データローダ作成、
         # is_train = phase に変える
         train_dataset = DCASE2021_task2.DCASE2021_task2_Dataset(CONFIG['IO_OPTION']['INPUT_ROOT'], class_name=class_name, phase='train')
@@ -140,7 +143,9 @@ def main():
         # 既に学習がおわっているかどうかをtrain pathをみて判断する(なければ実行)
         if not os.path.exists(train_feature_filepath):
             num_iter = 0
-            for (x, _, _) in tqdm(train_dataloader, '| feature extraction | train | %s |' % class_name):
+            wav_names = []
+            for (x, y, wav_name) in tqdm(train_dataloader, '| feature extraction | train | %s |' % class_name):
+                wav_names.extend(wav_name)
                 # model prediction
                 with torch.no_grad():
                     _ = model(x.to(device))
@@ -168,31 +173,36 @@ def main():
                 #train_outputs[layer_name] = []
             # embedding_vectorsのdim1に沿ってindices = [0,2,4](idx)を取得（サンプルを取得してる)
             # 0~t_d idxの中からランダムにd個サンプリングする
-            embedding_vectors = torch.index_select(embedding_vectors, 1, idx)
+            #embedding_vectors = torch.index_select(embedding_vectors, 1, idx)
             #print(embedding_vectors.shape)
             #torch.Size([6018, 128, 250, 16])
             ####################### calculate multivariate Gaussian distribution (MVG計算)##########################
             # PaDiMではパッチごとにMVGを作成する
             #print(embedding_vectors.size())
-            B, C, H, W = embedding_vectors.size()
-            embedding_vectors = embedding_vectors.view(B, C, H * W)
-            mean = torch.mean(embedding_vectors, dim=0).numpy()
-            cov = torch.zeros(C, C, H * W).numpy()
-            I = np.identity(C)
-            # パッチごとにMVG
-            for i in tqdm(range(H * W), '| calc MVG | train | %s |' % class_name):
-                #cov[:, :, i] = LedoitWolf().fit(embedding_vectors[:, :, i].numpy()).covariance_
-                cov[:, :, i] = np.cov(embedding_vectors[:, :, i].numpy(), rowvar=False) + 0.01 * I
-            # save learned distribution (保存)
-            train_outputs = [mean, cov]
-            with open(train_feature_filepath, 'wb') as f:
-                pickle.dump(train_outputs, f)
+            section_types = score_calculator.get_section_types(wav_names)
+            train_outputs_list = []
+            for section in section_types.unique():
+                idx = np.where(section_types == section)
+                per_embedding_vectors = embedding_vectors[idx, :, :, :]
+                B, C, H, W = per_embedding_vectors.size()
+                per_embedding_vectors = per_embedding_vectors.view(B, C, H * W)
+                mean = torch.mean(per_embedding_vectors, dim=0).numpy()
+                cov = torch.zeros(C, C, H * W).numpy()
+                I = np.identity(C)
+                # パッチごとにMVG
+                for i in tqdm(range(H * W), '| calc MVG | train | %s |' % class_name):
+                    #cov[:, :, i] = LedoitWolf().fit(embedding_vectors[:, :, i].numpy()).covariance_
+                    cov[:, :, i] = np.cov(per_embedding_vectors[:, :, i].numpy(), rowvar=False) + 0.01 * I
+                # save learned distribution (保存)
+                train_outputs_list.append([mean, cov])
+                with open(train_feature_filepath, 'wb') as f:
+                    pickle.dump(train_outputs_list, f)
             ########################################################################################################
         else:
             # すでにtrain pathがあるならロード
             print('load train set feature from: %s' % train_feature_filepath)
             with open(train_feature_filepath, 'rb') as f:
-                train_outputs = pickle.load(f)
+                train_outputs_list = pickle.load(f)
         ############################################################################################################
         ############################################# 推論フェーズ #################################################
         
@@ -227,17 +237,22 @@ def main():
         embedding_vectors = torch.index_select(embedding_vectors, 1, idx)
         #######################################　マハラノビス距離計算　###############################################
         # calculate distance matrix
-        
         B, C, H, W = embedding_vectors.size()
         embedding_vectors = embedding_vectors.view(B, C, H * W).numpy()
         dist_list = []
         # 対応するMVGを取り出してマハラノビス距離を計算(H*W個のMVGがある、特徴量はC)
         # 一つのMVGを取り出した際には、サンプルすべての対応するパッチMVGとのマハラノビス距離を計算する。
-        for i in tqdm(range(H * W), '| calc mahalanobis | test | %s |' % class_name):
-            mean = train_outputs[0][:, i]
-            conv_inv = np.linalg.inv(train_outputs[1][:, :, i])
-            dist = [mahalanobis(sample[:, i], mean, conv_inv) for sample in embedding_vectors]
-            dist_list.append(dist)
+
+        section_types = score_calculator.get_section_types(wav_names)
+        for section in range(len(train_outputs_list)):
+            idx = np.where(section_types == section)
+            train_outputs = train_outputs_list[section]
+            per_embedding_vectors = embedding_vectors[idx, :, :, :]
+            for i in tqdm(range(H * W), '| calc mahalanobis | test | %s |' % class_name):
+                mean = train_outputs[0][:, i]
+                conv_inv = np.linalg.inv(train_outputs[1][:, :, i])
+                dist = [mahalanobis(sample[:, i], mean, conv_inv) for sample in per_embedding_vectors]
+                dist_list.append(dist)
         
         # 最終的に(B,H,W)の異常スコアマップが出力される
         dist_list = np.array(dist_list).transpose(1, 0).reshape(B, H, W)
@@ -246,8 +261,8 @@ def main():
         score_map = dist_list.unsqueeze(1).squeeze().numpy()
 
         # apply gaussian smoothing on the score map(スコアマップにガウシアン・スムージングを適用する)
-        for i in range(score_map.shape[0]):
-            score_map[i] = gaussian_filter(score_map[i], sigma=4)
+        #for i in range(score_map.shape[0]):
+        #    score_map[i] = gaussian_filter(score_map[i], sigma=4)
         
         # Normalization
         max_score = score_map.max()
@@ -257,6 +272,7 @@ def main():
         ####################################### 評価 ######################################
         # calculate image-level ROC AUC score
         # 最大値/平均を異常スコアにする
+        
         gt_list = np.asarray(gt_list)
         for ano_criterion in ['MAX', 'MEAN']:
             if ano_criterion == 'MAX':
@@ -275,17 +291,16 @@ def main():
                 print(f'criterion == {ano_criterion} '+'image ROCpAUC: %.3f' % (mean_img_roc_pauc))
             
         if mean_img_roc_auc < max_img_roc_auc:
-            #img_scores = max_img_scores
+            img_scores = max_img_scores
             fpr, tpr = max_fpr, max_tpr
             img_roc_auc = max_img_roc_auc
         else:
-            #img_scores = mean_img_scores
+            img_scores = mean_img_scores
             fpr, tpr = mean_fpr, mean_tpr
             img_roc_auc = mean_img_roc_auc
 
-        
         total_roc_auc.append(img_roc_auc)
-        
+        score_calculator.append(np.array(wav_names), pred=img_scores, label=gt_list)
         fig_img_rocauc.plot(fpr, tpr, label='%s img_ROCAUC: %.3f' % (class_name, img_roc_auc))
         ###################################################################################
 
@@ -293,7 +308,9 @@ def main():
         os.makedirs(save_dir, exist_ok=True)
         if CONFIG['param']['plot_heatmap'] == True:
             plot_fig(test_imgs, scores, save_dir, class_name, wav_names)
-
+        save_dir = CONFIG['IO_OPTION']['OUTPUT_ROOT'] + '/result'
+        os.makedirs(save_dir, exist_ok=True)
+        score_calculator.calc_score(f'{save_dir}/{class_name}_result.csv')
         ############################################################################################################
     
     # 全データセットの平均スコア
@@ -310,7 +327,6 @@ def main():
     fig.tight_layout()
     fig.savefig(os.path.join(CONFIG['IO_OPTION']['OUTPUT_ROOT'], 'roc_curve.png'), dpi=100)
 
-#def plot_fig(test_img, scores, gts, threshold, save_dir, class_name):
 def plot_fig(test_img, scores, save_dir, class_name, wav_names):
     num = len(scores)
     vmax = scores.max()
@@ -353,19 +369,7 @@ def plot_fig(test_img, scores, save_dir, class_name, wav_names):
         fig_img.savefig(os.path.join(save_dir, f'{class_name}_{wav_name}.png'), dpi=100)
         plt.close()
 
-# これはMVtech用なので作り直す必要あり
-# normalizationしているのでそれをなおしてる
-# plot figで使う
-# つかわない？
-#def denormalization(x):
-#    mean = np.array([0.485, 0.456, 0.406])
-#    std = np.array([0.229, 0.224, 0.225])
-#    x = (((x.transpose(1, 2, 0) * std) + mean) * 255.).astype(np.uint8)
-    
-#    return x
-
 # パッチごとのlayer1,2,3特徴量
-# むずい
 def embedding_concat(x, y):
     B, C1, H1, W1 = x.size()
     _, C2, H2, W2 = y.size()
