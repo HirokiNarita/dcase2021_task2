@@ -6,7 +6,7 @@ IO_OPTION:
 param:
   # arch
   arch: 'PANNs_ResNet38'
-  plot_heatmap: True
+  plot_heatmap: False
   # feature
   sample_rate: 32000
   window_size: 1024

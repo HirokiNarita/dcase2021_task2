@@ -1,0 +1,2 @@
+mkdir $OUTPUT_DIR
+python3 -u main.py | tee $OUTPUT_DIR
