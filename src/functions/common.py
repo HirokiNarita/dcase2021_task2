@@ -374,20 +374,20 @@ def calc_auc(y_true, y_pred, max_fpr=0.1):
     p_auc = metrics.roc_auc_score(y_true, y_pred, max_fpr=max_fpr)
     return auc, p_auc
 
-def get_pred_discribe(labels, preds, section_types):
+def get_pred_discribe(labels, preds, section_types, wav_names):
     #print(labels.shape)
     #print(preds.shape)
     #print(section_types.shape)
-    describe_df = pd.DataFrame(np.stack([labels, preds, section_types], axis=1),
-                                columns=['labels', 'preds', 'section_types'])
+    describe_df = pd.DataFrame(np.stack([labels, preds, section_types, wav_names], axis=1),
+                                columns=['labels', 'preds', 'section_types', 'wav_names'])
     describe_df = describe_df.astype({'labels': int, 'section_types': int})
     return describe_df
 
 def get_score_per_Section(describe_df, max_fpr=0.1):
     # ユニークsectionを取得、昇順ソート
     sections = np.sort(describe_df['section_types'].unique())
-
-    for section in sections:
+    #print(sections)
+    for idx, section in enumerate(sections):
         per_section_df = describe_df[describe_df['section_types'] == section]
         per_section_AUC = roc_auc_score(per_section_df['labels'], per_section_df['preds'])
         per_section_pAUC = roc_auc_score(per_section_df['labels'], per_section_df['preds'], max_fpr=max_fpr)
@@ -396,15 +396,15 @@ def get_score_per_Section(describe_df, max_fpr=0.1):
         # indexをsectionナンバーにrename
         # column = [AUC,pAUC], row = [section]
         score_df.index = [section]
-        if section == 0:
+        if idx == 0:
             scores_df = score_df.copy()
         else:
             # 結合
             scores_df = scores_df.append(score_df)
     return scores_df
 
-def calc_DCASE2021_score(all_scores_df, labels, preds, section_types, phase):
-    describe_df = get_pred_discribe(labels, preds, section_types)
+def calc_DCASE2021_score(all_scores_df, labels, preds, section_types, phase, wav_names):
+    describe_df = get_pred_discribe(labels, preds, section_types, wav_names)
     scores_df = get_score_per_Section(describe_df, max_fpr=0.1)
     # 結合(source + target)
     if phase == 'valid_source':
@@ -427,3 +427,4 @@ def calc_DCASE2021_score(all_scores_df, labels, preds, section_types, phase):
         #all_scores_df.to_csv(f'{OUT_SCORE_DIR}/{machine_type}_score.csv')
         
     return all_scores_df
+

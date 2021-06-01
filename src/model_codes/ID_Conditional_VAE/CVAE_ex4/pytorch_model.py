@@ -156,7 +156,7 @@ class Conditional_VAE(nn.Module):
         # for center_loss
         self.latent_size = latent_size
         self.num_classes = num_classes
-        self.center_weight = 2.0
+        self.center_weight = 4.0
         #self.out_classes = nn.Linear(latent_size, num_classes)
         self.center_loss = CenterLoss(num_classes=num_classes, feat_dim=latent_size, use_gpu=True)
         

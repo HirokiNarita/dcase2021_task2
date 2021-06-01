@@ -1,0 +1,16 @@
+IO_OPTION:
+  INPUT_ROOT: '/media/hiroki/HDD1TB/research/dcase2021_task2/output/MahalanobisAD_orig_add_data_32k_revised/extraction_features'
+  OUTPUT_ROOT: '/media/hiroki/HDD1TB/research/dcase2021_task2/output/CenterLossVAE/ex15'
+  
+param:
+  # dataloader
+  batch_size : 512
+  shuffle : True
+  # train
+  num_epochs : 300
+  # latent_size
+  mid_size : 1024
+  latent_size : 1024
+  # etc
+  devise : 'cuda'
+  max_fpr : 0.1
